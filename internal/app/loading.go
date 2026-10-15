@@ -1,6 +1,7 @@
 package app
 
 import (
+	"log"
 	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -58,6 +59,7 @@ func (l *Loading) Update(a *App) error {
 	case r := <-l.done:
 		if r.err != nil {
 			l.err = r.err.Error()
+			log.Printf("load %s: %v", l.song.Dir, r.err)
 			return nil
 		}
 		t := r.c.Track(l.inst, l.diff)

@@ -6,9 +6,12 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/audio"
@@ -73,6 +76,7 @@ type App struct {
 	quit      bool
 	shotTaken bool
 	wantShot  bool
+	userShot  bool
 }
 
 // ErrQuit ends the game loop.
@@ -80,6 +84,14 @@ var ErrQuit = fmt.Errorf("quit")
 
 // Run starts the game.
 func Run(opts Options) error {
+	if err := os.MkdirAll(config.Dir(), 0o755); err == nil {
+		if f, err := os.OpenFile(filepath.Join(config.Dir(), "jam.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644); err == nil {
+			defer f.Close()
+			log.SetOutput(io.MultiWriter(os.Stderr, f))
+			log.SetFlags(log.Ltime | log.Lmicroseconds)
+		}
+	}
+	log.Printf("jam %s starting", Version)
 	settings, first := config.Load()
 	if first {
 		_ = settings.Save()
@@ -97,6 +109,12 @@ func Run(opts Options) error {
 	a.Input = input.NewManager()
 	defer a.Input.Close()
 	a.Menu = input.NewMenuInput(a.Bindings, a.Input.Devices())
+	time.AfterFunc(time.Second, func() {
+		for _, d := range a.Input.Devices() {
+			log.Printf("device: %s %s", d.Src, d)
+		}
+	})
+	log.Printf("library folders: %v, ffmpeg: %q, audio: %v", settings.LibraryPaths, a.FFmpeg, !a.NoAudio)
 
 	if _, err := demo.Write(config.SongsDir()); err != nil {
 		log.Printf("demo song: %v", err)
@@ -146,7 +164,10 @@ func (a *App) initialScene() Scene {
 }
 
 // SetScene switches screens.
-func (a *App) SetScene(s Scene) { a.scene = s }
+func (a *App) SetScene(s Scene) {
+	log.Printf("scene: %T", s)
+	a.scene = s
+}
 
 // Toast shows a short notice at the bottom of the screen.
 func (a *App) Toast(msg string) {
@@ -209,6 +230,7 @@ func (a *App) Update() error {
 	a.Raw = a.Input.Poll(a.Raw[:0])
 	a.MenuActs = a.Menu.Feed(a.Raw, now)
 	a.Chars = ebiten.AppendInputChars(a.Chars[:0])
+	a.checkShotRequest()
 	if inpututil.IsKeyJustPressed(ebiten.KeyF11) || (inpututil.IsKeyJustPressed(ebiten.KeyEnter) && ebiten.IsKeyPressed(ebiten.KeyAlt)) {
 		fs := !ebiten.IsFullscreen()
 		ebiten.SetFullscreen(fs)
@@ -238,11 +260,51 @@ func (a *App) TakeScreenshotNext() {
 	}
 }
 
+// checkShotRequest saves a screenshot when F12 is pressed or when a file
+// named shot.request appears in the config directory (handy for remote
+// debugging without touching the game window).
+func (a *App) checkShotRequest() {
+	if inpututil.IsKeyJustPressed(ebiten.KeyF12) {
+		a.userShot = true
+	}
+	if a.frame%30 == 0 {
+		req := filepath.Join(config.Dir(), "shot.request")
+		if _, err := os.Stat(req); err == nil {
+			os.Remove(req)
+			a.userShot = true
+		}
+	}
+}
+
+func (a *App) saveUserShot(screen *ebiten.Image) {
+	a.userShot = false
+	dir := filepath.Join(config.Dir(), "screenshots")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		a.Toast(err.Error())
+		return
+	}
+	b := screen.Bounds()
+	img := image.NewRGBA(b)
+	screen.ReadPixels(img.Pix)
+	path := filepath.Join(dir, time.Now().Format("2006-01-02 150405.000")+".png")
+	f, err := os.Create(path)
+	if err != nil {
+		a.Toast(err.Error())
+		return
+	}
+	_ = png.Encode(f, img)
+	f.Close()
+	_ = os.WriteFile(filepath.Join(dir, "latest.txt"), []byte(path), 0o644)
+}
+
 // Draw implements ebiten.Game.
 func (a *App) Draw(screen *ebiten.Image) {
 	a.scene.Draw(screen, a)
 	if a.wantShot {
 		defer a.TakeScreenshot(screen)
+	}
+	if a.userShot {
+		defer a.saveUserShot(screen)
 	}
 	if a.toast != "" {
 		dt := clock.Now() - a.toastAt
