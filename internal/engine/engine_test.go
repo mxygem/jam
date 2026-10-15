@@ -430,3 +430,66 @@ func TestInfiniteFrontEnd(t *testing.T) {
 func legacySettings() Settings {
 	return Settings{EarlyWindow: 0.07, LateWindow: 0.07, StrumLenience: 0.06, NoFail: true, ProDrums: true, BassMaxMult: 4}
 }
+
+// A fast ascending tap run played the way people roll it: each finger lands
+// a little before its note while the previous fret is still held, and the
+// previous finger lifts late. Taken from Gem's Neon run (57 ms apart).
+func TestRollingTapRun(t *testing.T) {
+	src := `[Song]
+{
+  Resolution = 192
+}
+[SyncTrack]
+{
+  0 = B 120000
+}
+[ExpertSingle]
+{
+  768 = N 0 0
+  768 = N 6 0
+  790 = N 1 0
+  790 = N 6 0
+  812 = N 2 0
+  812 = N 6 0
+  834 = N 3 0
+  834 = N 6 0
+  856 = N 4 0
+  856 = N 6 0
+}
+`
+	c, err := chart.ParseDotChart(strings.NewReader(src), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := c.Track(chart.Guitar, chart.Expert)
+	for _, n := range tr.Notes {
+		if n.Kind != chart.Tap {
+			t.Fatalf("test chart: want taps, got %v", n.Kind)
+		}
+	}
+	// Gem's actual presses and releases, relative to the first tap.
+	t0 := tr.Notes[0].Time
+	var s script
+	s.fret(t0-0.211, action.Green, true) // well before green's window
+	s.fret(t0-0.063, action.Red, true)   // 120 ms before red
+	s.fret(t0-0.006, action.Green, false)
+	s.fret(t0+0.040, action.Yellow, true)
+	s.fret(t0+0.105, action.Blue, true)
+	s.fret(t0+0.133, action.Red, false)
+	s.fret(t0+0.133, action.Yellow, false)
+	s.fret(t0+0.137, action.Orange, true)
+	s.fret(t0+0.212, action.Blue, false)
+	s.fret(t0+0.300, action.Orange, false)
+	for _, set := range []Settings{DefaultSettings(), func() Settings { s := DefaultSettings(); s.InfiniteFrontEnd = false; return s }()} {
+		e := New(c, tr, set)
+		run(e, sortScript(s), 2.5)
+		if st := e.Stats(); st.NotesHit != 5 {
+			t.Errorf("infinite front end %v: hit %d of 5 taps: %+v", set.InfiniteFrontEnd, st.NotesHit, e.Judgments())
+		}
+	}
+	legacy := New(c, tr, legacySettings())
+	run(legacy, sortScript(s), 2.5)
+	if legacy.Stats().NotesHit == 5 {
+		t.Error("rules 0 recordings should replay with the old (stricter) tap behavior")
+	}
+}

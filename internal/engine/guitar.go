@@ -43,6 +43,7 @@ type Guitar struct {
 
 	pendingStrum   float64
 	strumWaiting   bool
+	fretted        bool // frets changed since the last hit (rules 2)
 	pendingTargets bool // there was a note in the window when the strum came
 }
 
@@ -116,6 +117,11 @@ func (g *Guitar) Advance(t float64) {
 				at, kind = e, 4
 			}
 		}
+		if g.fretted && g.next < len(notes) && g.fretHittable(g.next) {
+			if f := g.front(g.next); f > g.now && f < at {
+				at, kind = f, 5
+			}
+		}
 		g.integrate(at)
 		switch kind {
 		case 0:
@@ -123,6 +129,7 @@ func (g *Guitar) Advance(t float64) {
 		case 1:
 			g.miss(g.next, notes[g.next].Time+g.set.LateWindow)
 			g.advanceNext()
+			g.checkFretted(at)
 		case 2:
 			g.endSustainLane(si, lane, at)
 		case 3:
@@ -137,6 +144,8 @@ func (g *Guitar) Advance(t float64) {
 		case 4:
 			g.strumWaiting = false
 			g.overstrum(g.pendingStrum)
+		case 5:
+			g.checkFretted(at)
 		}
 	}
 }
@@ -207,6 +216,9 @@ func (g *Guitar) Process(ev action.Event) {
 			g.held &^= 1 << lane
 		}
 		g.checkHolds(t)
+		if g.set.Rules >= 2 {
+			g.fretted = true
+		}
 		if g.strumWaiting {
 			if i := g.findTarget(g.pendingStrum); i >= 0 {
 				g.strumWaiting = false
@@ -318,6 +330,31 @@ func (g *Guitar) matches(i int) bool {
 	return held>>lane == 1 // the note's fret is the highest held (anchoring)
 }
 
+// fretHittable reports whether note i can be played without strumming
+// right now: taps always, HOPOs while the streak is going.
+func (g *Guitar) fretHittable(i int) bool {
+	switch g.track.Notes[i].Kind {
+	case chart.Tap:
+		return true
+	case chart.HOPO:
+		return g.stats.Streak > 0
+	}
+	return false
+}
+
+// checkFretted hits the next tap or HOPO at t if the player changed frets
+// since the last hit and is holding the right ones: the fret went down
+// before the note could be hit (rolling through a fast run) and the note has
+// just become hittable.
+func (g *Guitar) checkFretted(t float64) {
+	if !g.fretted {
+		return
+	}
+	if i := g.candidate(t); i >= 0 && g.fretHittable(i) && g.matches(i) {
+		g.hit(i, t, ViaFret)
+	}
+}
+
 func (g *Guitar) tryFretHit(t float64) {
 	i := g.candidate(t)
 	if i < 0 {
@@ -398,6 +435,7 @@ func (g *Guitar) hit(i int, t float64, via Via) {
 		g.rock(rockHit)
 	}
 	g.status[i] = NoteHit
+	g.fretted = false
 	g.record(Judgment{Time: t, Note: i, Lane: -1, Result: Hit, Offset: t - n.Time, Via: via, Held: g.held})
 	g.notePhraseResolved(i, true, t)
 	if n.HasSustain() {

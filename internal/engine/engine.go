@@ -20,7 +20,10 @@ import (
 //	0: original rules
 //	1: a strum after hammering a HOPO is forgiven until the note's hit
 //	   window closes (not just 60 ms after the fret); ChordLenience setting
-const CurrentRules = 1
+//	2: a fret change is remembered until a note is hit, so a tap or HOPO
+//	   whose fret is already down when its window opens is hit then
+//	   (rolling through fast tap runs), as in YARG and Clone Hero
+const CurrentRules = 2
 
 // Settings tune the ruleset.
 type Settings struct {
