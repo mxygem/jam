@@ -17,6 +17,7 @@ import (
 	"github.com/mxygem/jam/internal/action"
 	"github.com/mxygem/jam/internal/chart"
 	"github.com/mxygem/jam/internal/engine"
+	"github.com/mxygem/jam/internal/rich"
 )
 
 // Version of the recording format.
@@ -200,7 +201,8 @@ func Resimulate(c *chart.Chart, t *chart.Track, set engine.Settings, events []ac
 	return e
 }
 
-var unsafeName = regexp.MustCompile(`[^A-Za-z0-9 _.-]+`)
+// Characters Windows doesn't allow in file names (plus control characters).
+var unsafeName = regexp.MustCompile(`[<>:"/\\|?*\x00-\x1f]+`)
 
 // Save writes the recording (gzip-compressed JSON) into dir and returns the
 // file path.
@@ -208,10 +210,10 @@ func (r *Recording) Save(dir string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	title := strings.TrimSpace(r.Song.Artist + " - " + r.Song.Name)
+	title := strings.TrimSpace(rich.Plain(r.Song.Artist) + " - " + rich.Plain(r.Song.Name))
 	title = unsafeName.ReplaceAllString(title, "")
-	if len(title) > 60 {
-		title = title[:60]
+	if rs := []rune(title); len(rs) > 60 {
+		title = strings.TrimSpace(string(rs[:60]))
 	}
 	name := fmt.Sprintf("%s %s %s %s.jamrun.json.gz", r.Started.Format("2006-01-02 150405"), title, r.Instrument, r.Difficulty)
 	path := filepath.Join(dir, name)

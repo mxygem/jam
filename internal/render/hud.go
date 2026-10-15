@@ -158,10 +158,11 @@ func (u *HUD) Draw(dst *ebiten.Image, s *HUDState) {
 	// --- title card ---
 	if s.TitleAlpha > 0 {
 		a := s.TitleAlpha
-		TextShadow(dst, s.Title, UIBold, 52, 80, 70, WithAlpha(th.Text, a), Left)
-		TextShadow(dst, s.Artist, UI, 32, 82, 132, WithAlpha(th.TextDim, a), Left)
+		RichText(dst, s.Title, UIBold, 52, 82, 73, color.RGBA{0, 0, 0, uint8(150 * a)}, Left, 900)
+		RichText(dst, s.Title, UIBold, 52, 80, 70, WithAlpha(th.Text, a), Left, 900)
+		RichText(dst, s.Artist, UI, 32, 82, 132, WithAlpha(th.TextDim, a), Left, 900)
 		if s.Charter != "" {
-			Text(dst, "charted by "+s.Charter, Cond, 24, 82, 176, WithAlpha(th.TextDim, a*0.8), Left)
+			RichText(dst, "charted by "+s.Charter, Cond, 24, 82, 176, WithAlpha(th.TextDim, a*0.8), Left, 900)
 		}
 		Text(dst, s.Difficulty+" "+s.Instrument, CondBold, 26, 82, 210, WithAlpha(th.Accent, a), Left)
 	}

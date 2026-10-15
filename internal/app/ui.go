@@ -136,9 +136,9 @@ func (l *List) Hint() string {
 
 // Header draws a screen title and subtitle.
 func Header(dst *ebiten.Image, title, sub string) {
-	render.Text(dst, title, render.Display, 72, 96, 54, th.Text, render.Left)
+	render.RichText(dst, title, render.Display, 72, 96, 54, th.Text, render.Left, 1700)
 	if sub != "" {
-		render.Text(dst, sub, render.UI, 28, 100, 140, th.TextDim, render.Left)
+		render.RichText(dst, sub, render.UI, 28, 100, 140, th.TextDim, render.Left, 1700)
 	}
 	render.FillRect(dst, 96, 186, 140, 5, th.Accent)
 }

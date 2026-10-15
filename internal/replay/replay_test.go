@@ -1,6 +1,7 @@
 package replay
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -104,4 +105,16 @@ func TestRecordAnalyzeRoundTrip(t *testing.T) {
 		t.Errorf("report missing parts:\n%s", txt)
 	}
 	t.Log("\n" + txt)
+}
+
+func TestSaveNameStripsTags(t *testing.T) {
+	rec := &Recording{Song: SongRef{Artist: "<color=#33ccff><b>gem</b></color>", Name: "김진산 <i>Crow</i>: a/b?"}, Instrument: "guitar", Difficulty: "expert"}
+	path, err := rec.Save(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := filepath.Base(path)
+	if strings.ContainsAny(base, "<>:/?\\\"|*") || !strings.Contains(base, "gem - 김진산 Crow") {
+		t.Errorf("file name %q", base)
+	}
 }

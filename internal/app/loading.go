@@ -89,8 +89,8 @@ func (l *Loading) Update(a *App) error {
 
 func (l *Loading) Draw(dst *ebiten.Image, a *App) {
 	MenuBackground(dst)
-	render.Text(dst, l.song.Name, render.UIBold, 60, render.ScreenW/2, 380, th.Text, render.Center)
-	render.Text(dst, l.song.Artist, render.UI, 36, render.ScreenW/2, 460, th.TextDim, render.Center)
+	render.RichText(dst, l.song.Name, render.UIBold, 60, render.ScreenW/2, 380, th.Text, render.Center, 1600)
+	render.RichText(dst, l.song.Artist, render.UI, 36, render.ScreenW/2, 460, th.TextDim, render.Center, 1600)
 	if l.err != "" {
 		render.Text(dst, "Couldn't load this song", render.UIBold, 34, render.ScreenW/2, 580, th.Bad, render.Center)
 		render.Text(dst, truncateW(l.err, render.UI, 26, 1600), render.UI, 26, render.ScreenW/2, 630, th.Text, render.Center)

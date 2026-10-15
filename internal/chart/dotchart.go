@@ -175,6 +175,7 @@ func ParseDotChart(r io.Reader, ini *SongIni) (*Chart, error) {
 			c.Sections = append(c.Sections, Section{Tick: ev.tick, Time: tm.Seconds(ev.tick), Name: name})
 		}
 	}
+	c.Lyrics = lyricsFromEvents(tm, c.Events)
 
 	hopo := int64(65 * res / 192)
 	if v, ok := ini.Int("hopo_frequency"); ok && v > 0 {

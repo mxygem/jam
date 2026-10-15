@@ -311,6 +311,7 @@ type Chart struct {
 	Events     []TextEvent
 	Tracks     map[TrackKey]*Track
 	Meta       map[string]string // [Song] section of a .chart, lower-cased keys
+	Lyrics     []LyricPhrase     // vocals lyrics by line, if the chart has them
 }
 
 // Track returns the track for key or nil.

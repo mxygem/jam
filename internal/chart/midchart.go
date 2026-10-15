@@ -153,6 +153,10 @@ func ParseMidiChart(b []byte, ini *SongIni) (*Chart, error) {
 			}
 			continue
 		}
+		if name == "PART VOCALS" {
+			c.Lyrics = lyricsFromVocals(tm, t)
+			continue
+		}
 		inst, ok := midiTrackInstruments[name]
 		if !ok {
 			continue
@@ -166,6 +170,9 @@ func ParseMidiChart(b []byte, ini *SongIni) (*Chart, error) {
 		} else {
 			parseMidiGuitar(c, tm, inst, t, notes, hopo, cutoff, spNote)
 		}
+	}
+	if len(c.Lyrics) == 0 {
+		c.Lyrics = lyricsFromEvents(tm, c.Events)
 	}
 	return c, nil
 }
