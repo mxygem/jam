@@ -67,6 +67,15 @@ func NewSettings(a *App) *Settings {
 			Value:  func() string { return fmt.Sprintf("%.0f ms", st.Engine.ChordLenience*1000) },
 			Adjust: func(d int) { st.Engine.ChordLenience = clampf(st.Engine.ChordLenience+float64(d)*0.005, 0.005, 0.12) }},
 		{Label: "No fail", Value: func() string { return onOff(st.Engine.NoFail) }, Adjust: func(int) { st.Engine.NoFail = !st.Engine.NoFail }},
+		{Label: "Hit effects", Hint: "Flash, flames and sparks when you hit a note (the fret punch always shows)",
+			Value: func() string {
+				l := render.ParseFxLevel(st.HitFx).String()
+				return strings.ToUpper(l[:1]) + l[1:]
+			},
+			Adjust: func(d int) {
+				l := (int(render.ParseFxLevel(st.HitFx)) + d + 3) % 3
+				st.HitFx = render.FxLevel(l).String()
+			}},
 		{Label: "Show hit timing", Hint: "Show +/- ms under the strike line on every hit", Value: func() string { return onOff(st.ShowTiming) }, Adjust: func(int) { st.ShowTiming = !st.ShowTiming }},
 		{Label: "Mute stem on miss", Value: func() string { return onOff(st.MuteOnMiss) }, Adjust: func(int) { st.MuteOnMiss = !st.MuteOnMiss }},
 		{Label: "Pro drums (cymbals)", Value: func() string { return onOff(st.Engine.ProDrums) }, Adjust: func(int) { st.Engine.ProDrums = !st.Engine.ProDrums }},

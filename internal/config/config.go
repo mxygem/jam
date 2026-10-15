@@ -31,6 +31,7 @@ type Settings struct {
 	LastInstrument string               `json:"last_instrument,omitempty"`
 	LastDifficulty string               `json:"last_difficulty,omitempty"`
 	LeadIn         float64              `json:"lead_in"` // seconds before the first note
+	HitFx          string               `json:"hit_fx"`  // hit effects: full, reduced, off
 }
 
 // Default returns fresh settings.
@@ -43,6 +44,7 @@ func Default() *Settings {
 		MuteOnMiss: true,
 		VSync:      true,
 		LeadIn:     2.5,
+		HitFx:      "full",
 	}
 }
 

@@ -15,10 +15,11 @@ const zMin = -0.14 // how far past the strike line notes keep scrolling
 
 // Highway draws the note highway in perspective.
 type Highway struct {
-	Cfg   HighwayConfig
-	Theme *Theme
-	batch Batch
-	beats []chart.BeatLine
+	Cfg     HighwayConfig
+	Theme   *Theme
+	batch   Batch
+	fxBatch Batch
+	beats   []chart.BeatLine
 }
 
 // FrameState is everything the highway needs for one frame.
@@ -34,6 +35,8 @@ type FrameState struct {
 	SPActive   bool       //
 	MissFlash  float64    // last miss/overstrum (song time)
 	ExpertPlus bool       //
+	Hits       []HitFx    // recent successful hits, for hit effects
+	Fx         FxLevel    // how much the hit effects do
 }
 
 func (h *Highway) far() float64 { return h.Cfg.FarRatio / (1 - h.Cfg.FarRatio) }
@@ -123,6 +126,19 @@ func (h *Highway) Draw(dst *ebiten.Image, f *FrameState) {
 	drums := t.Key.Inst.IsDrums()
 	b := &h.batch
 
+	// Kicks (drums) and open notes (guitar) knock the whole highway down a
+	// touch and let it bounce back.
+	thumpLane := chart.LaneOpen
+	if drums {
+		thumpLane = chart.DrumKick
+	}
+	if d := thump(f.Hits, thumpLane, f.Now); d != 0 && f.Fx != FxOff {
+		saved := h.Cfg
+		h.Cfg.StrikeY += d
+		h.Cfg.TopY += d * 0.35
+		defer func() { h.Cfg = saved }()
+	}
+
 	// --- surface ---
 	left := func(z float64) float64 { return h.X(0, lanes, z) }
 	right := func(z float64) float64 { return h.X(float64(lanes), lanes, z) }
@@ -210,10 +226,15 @@ func (h *Highway) Draw(dst *ebiten.Image, f *FrameState) {
 		if pressed {
 			dy = 4
 		}
+		// A hit kicks the target down and lets it spring back.
+		down, lit := punch(lastHit(f.Hits, l, f.Now))
+		dy += down
+		grow := 1 + 0.16*lit
+		rx, ry = rx*grow, ry*grow
 		b.Ellipse(dst, cx, ys+8, rx+4, ry+6, color.RGBA{0, 0, 0, 0xA0}, color.RGBA{0, 0, 0, 0x60})
-		if pressed {
-			b.Ellipse(dst, cx, ys+dy, rx, ry, Lighten(c, 0.45), c)
-			b.Ring(dst, cx, ys+dy, rx, ry, 6, silver, Lighten(c, 0.6))
+		if pressed || lit > 0.05 {
+			b.Ellipse(dst, cx, ys+dy, rx, ry, Lighten(c, 0.45+0.45*lit), Lighten(c, 0.35*lit))
+			b.Ring(dst, cx, ys+dy, rx, ry, 6, Lighten(silver, 0.5*lit), Lighten(c, 0.6))
 		} else {
 			b.Ellipse(dst, cx, ys, rx, ry, Darken(c, 0.55), Darken(c, 0.8))
 			b.Ring(dst, cx, ys, rx, ry, 7, Lighten(c, 0.2), Darken(c, 0.2))
@@ -225,6 +246,10 @@ func (h *Highway) Draw(dst *ebiten.Image, f *FrameState) {
 		kc := col[chart.DrumKick]
 		a := 0.55
 		if f.Now-f.PadHit[chart.DrumKick] < 0.09 && f.Now >= f.PadHit[chart.DrumKick] {
+			a = 1
+		}
+		if _, lit := punch(lastHit(f.Hits, chart.DrumKick, f.Now)); lit > 0 {
+			kc = Lighten(kc, 0.5*lit)
 			a = 1
 		}
 		b.Line(dst, left(0)+4, ys+lw*0.26, right(0)-4, ys+lw*0.26, 8, WithAlpha(kc, a), WithAlpha(kc, a))
@@ -401,44 +426,24 @@ func (h *Highway) Draw(dst *ebiten.Image, f *FrameState) {
 		}
 	}
 
-	// --- hit flashes ---
-	for l := 0; l < 7; l++ {
-		dt := f.Now - f.Flash[l]
-		if dt < 0 || dt > 0.22 {
-			continue
-		}
-		k := 1 - dt/0.22
-		var cx float64
-		c := col[l]
-		if l == chart.LaneOpen && !drums || (drums && l == chart.DrumKick) {
-			cx = h.Cfg.CenterX
-		} else if pos[l] >= 0 {
-			cx = h.X(float64(pos[l])+0.5, lanes, 0)
-		} else {
-			continue
-		}
-		if f.SPActive {
-			c = Mix(c, th.StarPower, 0.6)
-		}
-		g := Glow(c)
-		op := &ebiten.DrawImageOptions{Blend: ebiten.BlendLighter}
-		sc := (lw * (0.9 + (1-k)*0.8)) / 128
-		if (drums && l == chart.DrumKick) || (!drums && l == chart.LaneOpen) {
-			op.GeoM.Scale(sc*3.2, sc*0.7)
-			op.GeoM.Translate(cx-128*sc*3.2, ys-128*sc*0.7)
-		} else {
-			op.GeoM.Scale(sc, sc*0.8)
-			op.GeoM.Translate(cx-128*sc, ys-128*sc*0.8)
-		}
-		op.ColorScale.ScaleAlpha(float32(k))
-		dst.DrawImage(g, op)
-		// rising flame streak
-		hgt := 150 * k
-		w := lw * 0.28
-		b.Quad(dst, cx-w, ys, cx+w, ys, cx+w*0.3, ys-hgt, cx-w*0.3, ys-hgt,
-			WithAlpha(Lighten(c, 0.6), 0.55*k), WithAlpha(Lighten(c, 0.6), 0.55*k), color.RGBA{}, color.RGBA{})
-	}
 	b.Flush(dst)
+
+	// --- hit effects ---
+	h.drawHitFx(dst, f, func(l int) fxTarget {
+		rx := lw * 0.40
+		tg := fxTarget{y: ys, rx: rx, ry: rx * 0.5, c: col[l], visible: true}
+		switch {
+		case !drums && l == chart.LaneOpen:
+			tg.cx, tg.span = h.Cfg.CenterX, h.Cfg.NearWidth*0.47
+		case drums && l == chart.DrumKick:
+			tg.cx, tg.span, tg.y = h.Cfg.CenterX, h.Cfg.NearWidth*0.47, ys+lw*0.26
+		case pos[l] >= 0:
+			tg.cx = h.X(float64(pos[l])+0.5, lanes, 0)
+		default:
+			tg.visible = false
+		}
+		return tg
+	}, th)
 }
 
 func (h *Highway) drawGem(dst *ebiten.Image, style GemStyle, c color.RGBA, p float64, lanes int, z, s, y, alpha, scale float64, accent, activation bool) {

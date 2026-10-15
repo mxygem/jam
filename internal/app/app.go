@@ -80,6 +80,12 @@ type App struct {
 	userShot  bool
 	panics    int
 	lastPanic float64
+
+	// Screenshot mode runs on a fixed-step clock so a capture lands on
+	// exactly the requested song time however slow rendering is.
+	fixed    bool
+	fakeNow  float64
+	NearShot bool // set by scenes close to the capture time: fine steps
 }
 
 // ErrQuit ends the game loop.
@@ -121,6 +127,11 @@ func Run(opts Options) error {
 		log.Printf("bindings: %v", err)
 	}
 	a := &App{Opts: opts, Settings: settings, Bindings: b, NoAudio: os.Getenv("JAM_NOAUDIO") != ""}
+	if opts.Screenshot != "" && a.NoAudio {
+		a.fixed = true
+		a.fakeNow = clock.Now()
+		defer clock.Override(func() float64 { return a.fakeNow })()
+	}
 	if !a.NoAudio {
 		a.Audio = audio.NewContext(playback.SampleRate)
 	}
@@ -147,7 +158,7 @@ func Run(opts Options) error {
 	// Keep running when another window has focus: the song clock and the
 	// controller threads don't stop, so the game loop shouldn't either.
 	ebiten.SetRunnableOnUnfocused(true)
-	ebiten.SetVsyncEnabled(settings.VSync)
+	ebiten.SetVsyncEnabled(settings.VSync && !a.fixed)
 	ebiten.SetTPS(ebiten.SyncWithFPS)
 	if settings.Fullscreen && !opts.Windowed {
 		ebiten.SetFullscreen(true)
@@ -275,6 +286,13 @@ func (a *App) Update() (err error) {
 		return ErrQuit
 	}
 	a.frame++
+	if a.fixed {
+		if a.NearShot {
+			a.fakeNow += 1.0 / 240
+		} else {
+			a.fakeNow += 0.1
+		}
+	}
 	now := clock.Now()
 	a.Raw = a.Input.Poll(a.Raw[:0])
 	a.MenuActs = a.Menu.Feed(a.Raw, now)
@@ -349,6 +367,9 @@ func (a *App) saveUserShot(screen *ebiten.Image) {
 // Draw implements ebiten.Game.
 func (a *App) Draw(screen *ebiten.Image) {
 	defer a.guard("draw")
+	if a.fixed && !a.wantShot {
+		return // only the captured frame is drawn; keeps fixed-step capture fast
+	}
 	a.scene.Draw(screen, a)
 	if a.wantShot {
 		defer a.TakeScreenshot(screen)

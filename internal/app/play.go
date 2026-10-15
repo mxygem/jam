@@ -108,7 +108,7 @@ func NewPlay(a *App, s *chart.Song, c *chart.Chart, t *chart.Track, au *playback
 		p.bot = botEvents(t, set.Engine.ExpertPlus)
 		p.rec.Rec.Device = "autoplay"
 	}
-	p.frame = render.FrameState{Chart: c, Track: t, Eng: p.eng, ExpertPlus: set.Engine.ExpertPlus}
+	p.frame = render.FrameState{Chart: c, Track: t, Eng: p.eng, ExpertPlus: set.Engine.ExpertPlus, Fx: render.ParseFxLevel(set.HitFx)}
 	for i := range p.frame.Flash {
 		p.frame.Flash[i] = -100
 		p.frame.PadHit[i] = -100
@@ -221,7 +221,11 @@ func (p *Play) Update(a *App) error {
 	if pauseReq && !p.finished {
 		p.openPause(a, now)
 	}
-	if a.Opts.Screenshot != "" && a.Opts.ShotScene != "results" && p.renderNow(now) >= a.Opts.ShotAt {
+	if a.Opts.Screenshot != "" && p.renderNow(now) >= a.Opts.ShotAt-0.3 {
+		a.NearShot = true
+	}
+	if a.Opts.Screenshot != "" && a.Opts.ShotScene != "results" && p.renderNow(now) >= a.Opts.ShotAt && !a.wantShot {
+		log.Printf("screenshot at song time %.3f", p.renderNow(now))
 		a.TakeScreenshotNext()
 	}
 	return nil
@@ -288,11 +292,13 @@ func (p *Play) processJudgments(a *App) {
 		case engine.Hit:
 			if p.drums {
 				p.frame.Flash[j.Lane] = rt
+				p.frame.Hits = append(p.frame.Hits, render.HitFx{At: rt, Lane: j.Lane, SP: st.SPActive})
 			} else if j.Note >= 0 {
 				n := &p.t.Notes[j.Note]
 				for l := 0; l < chart.NumLanes; l++ {
 					if n.Lanes&(1<<l) != 0 {
 						p.frame.Flash[l] = rt
+						p.frame.Hits = append(p.frame.Hits, render.HitFx{At: rt, Lane: l, SP: st.SPActive})
 					}
 				}
 			}
@@ -450,6 +456,14 @@ func (p *Play) Draw(dst *ebiten.Image, a *App) {
 		}
 		f.Whammy = p.m.Analog(action.Whammy)
 	}
+	// Drop hit effects that have finished.
+	keep := f.Hits[:0]
+	for _, h := range f.Hits {
+		if rn-h.At < render.FxLife {
+			keep = append(keep, h)
+		}
+	}
+	f.Hits = keep
 	p.hw.Draw(dst, f)
 
 	h := &p.hs

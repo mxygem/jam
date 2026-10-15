@@ -68,18 +68,29 @@ func vtx(x, y float64, c color.RGBA) ebiten.Vertex {
 	}
 }
 
-var triOpts = &ebiten.DrawTrianglesOptions{AntiAlias: true}
+var (
+	triOpts = &ebiten.DrawTrianglesOptions{AntiAlias: true}
+	addOpts = &ebiten.DrawTrianglesOptions{AntiAlias: true, Blend: ebiten.BlendLighter}
+)
 
 // Batch accumulates triangles and flushes them in one draw call.
 type Batch struct {
 	v []ebiten.Vertex
 	i []uint16
+
+	// Additive batches draw light (glows, sparks, flames) with
+	// BlendLighter instead of normal alpha blending.
+	Additive bool
 }
 
 // Flush draws and clears the batch.
 func (b *Batch) Flush(dst *ebiten.Image) {
 	if len(b.i) > 0 {
-		dst.DrawTriangles(b.v, b.i, whiteSub, triOpts)
+		opts := triOpts
+		if b.Additive {
+			opts = addOpts
+		}
+		dst.DrawTriangles(b.v, b.i, whiteSub, opts)
 	}
 	b.v = b.v[:0]
 	b.i = b.i[:0]
@@ -113,6 +124,21 @@ func (b *Batch) Ellipse(dst *ebiten.Image, cx, cy, rx, ry float64, center, edge 
 	for k := 0; k <= n; k++ {
 		a := float64(k) / n * 2 * math.Pi
 		b.v = append(b.v, vtx(cx+rx*math.Cos(a), cy+ry*math.Sin(a), edge))
+	}
+	for k := 0; k < n; k++ {
+		b.i = append(b.i, base, base+1+uint16(k), base+2+uint16(k))
+	}
+}
+
+// Dot adds a small filled circle with few segments (sparks, particles).
+func (b *Batch) Dot(dst *ebiten.Image, cx, cy, r float64, center, edge color.RGBA) {
+	const n = 8
+	b.room(n+2, dst)
+	base := uint16(len(b.v))
+	b.v = append(b.v, vtx(cx, cy, center))
+	for k := 0; k <= n; k++ {
+		a := float64(k) / n * 2 * math.Pi
+		b.v = append(b.v, vtx(cx+r*math.Cos(a), cy+r*math.Sin(a), edge))
 	}
 	for k := 0; k < n; k++ {
 		b.i = append(b.i, base, base+1+uint16(k), base+2+uint16(k))
