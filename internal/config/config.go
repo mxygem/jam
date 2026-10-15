@@ -84,6 +84,9 @@ func Load() (*Settings, bool) {
 	if s.Engine.EarlyWindow == 0 {
 		s.Engine = engine.DefaultSettings()
 	}
+	// The ruleset version isn't a preference: new runs always use the
+	// current rules (recordings keep the version they were played with).
+	s.Engine.Rules = engine.CurrentRules
 	return s, false
 }
 

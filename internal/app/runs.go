@@ -93,7 +93,7 @@ func (r *Runs) summary(f string) string {
 	if rec == nil {
 		return "unreadable"
 	}
-	return fmt.Sprintf("%.1f%%  %d", rec.Result.Accuracy*100, rec.Result.Score)
+	return fmt.Sprintf("%.1f%%  %d", rec.Result.HitRate()*100, rec.Result.Score)
 }
 
 func (r *Runs) Update(a *App) error {

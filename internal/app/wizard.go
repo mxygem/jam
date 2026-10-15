@@ -366,9 +366,9 @@ func (w *Wizard) pending(a *App) *input.Profile {
 		p.Bindings[k] = append([]input.Binding(nil), v...)
 	}
 	for _, c := range w.caps {
-		if len(c.binds) == 0 {
-			continue
-		}
+		// A skipped step means this device doesn't have that control, so
+		// its old or default binding for it goes too (a CRKD's knob sits
+		// where other guitars report tilt).
 		p.SetSource(c.act, w.devSrc, c.binds)
 	}
 	return p

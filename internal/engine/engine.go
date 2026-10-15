@@ -13,8 +13,19 @@ import (
 	"github.com/mxygem/jam/internal/chart"
 )
 
+// CurrentRules is the ruleset version new runs are played with. Recordings
+// store the version they were judged under so they always re-simulate the
+// same way, even after the rules change:
+//
+//	0: original rules
+//	1: a strum after hammering a HOPO is forgiven until the note's hit
+//	   window closes (not just 60 ms after the fret); ChordLenience setting
+const CurrentRules = 1
+
 // Settings tune the ruleset.
 type Settings struct {
+	Rules         int     `json:"rules"`          // ruleset version (see CurrentRules)
+	ChordLenience float64 `json:"chord_lenience"` // how long a strum waits for frets to finish landing
 	EarlyWindow   float64 `json:"early_window"`   // seconds before a note it may be hit
 	LateWindow    float64 `json:"late_window"`    // seconds after a note it may be hit
 	StrumLenience float64 `json:"strum_lenience"` // ignore a strum this soon after a fret-hit HOPO/tap
@@ -28,6 +39,8 @@ type Settings struct {
 // DefaultSettings are tuned to feel like Clone Hero's defaults.
 func DefaultSettings() Settings {
 	return Settings{
+		Rules:         CurrentRules,
+		ChordLenience: 0.050,
 		EarlyWindow:   0.070,
 		LateWindow:    0.070,
 		StrumLenience: 0.060,

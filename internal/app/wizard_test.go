@@ -106,6 +106,19 @@ func TestGuitarWizardSkipsAndGoesBack(t *testing.T) {
 	if w.stage != stageTest {
 		t.Fatalf("skipping every step should reach the test screen, at step %d", w.step)
 	}
+	// Skipping clears the device's binding for that action (defaults
+	// included); other sources keep theirs. Start was skipped too, so save
+	// from the keyboard.
+	h.frame(input.RawEvent{Src: input.SrcKeyboard, Kind: input.KindKey, Code: int(keyEnter), Value: 1, Down: true})
+	p := h.a.Bindings.Profile(input.FamilyGuitar)
+	for _, b := range p.Get(action.Tilt) {
+		if b.Src == "xinput" {
+			t.Errorf("skipped tilt still bound to %s", b.Describe())
+		}
+	}
+	if len(p.Get(action.Green)) != 1 || p.Get(action.Green)[0].Src != "keyboard" {
+		t.Errorf("green after skipping: %+v, want only the keyboard key", p.Get(action.Green))
+	}
 	// Optional steps time out on their own.
 	h2 := newHarness(t)
 	w2 := NewWizard(h2.a, input.FamilyGuitar)

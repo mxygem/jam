@@ -112,8 +112,13 @@ func (r *Results) Draw(dst *ebiten.Image, a *App) {
 		render.Text(dst, k, render.Cond, 24, x, y, th.TextDim, render.Left)
 		render.Text(dst, v, render.UIBold, 40, x, y+26, th.Text, render.Left)
 	}
-	stat(lx, ly+130, "ACCURACY", fmt.Sprintf("%.1f%%", res.Accuracy*100))
-	stat(lx+200, ly+130, "NOTES", fmt.Sprintf("%d/%d", res.NotesHit, res.NotesTotal))
+	stat(lx, ly+130, "ACCURACY", fmt.Sprintf("%.1f%%", res.HitRate()*100))
+	notes := fmt.Sprintf("%d/%d", res.NotesHit, res.NotesTotal)
+	if res.Reached() < res.NotesTotal {
+		notes = fmt.Sprintf("%d/%d", res.NotesHit, res.Reached())
+		render.Text(dst, fmt.Sprintf("of %d in the song", res.NotesTotal), render.Cond, 22, lx+200, ly+202, th.TextDim, render.Left)
+	}
+	stat(lx+200, ly+130, "NOTES", notes)
 	stat(lx+420, ly+130, "BEST STREAK", fmt.Sprintf("%d", res.MaxStreak))
 	over := "OVERSTRUMS"
 	if rec.Instrument == "drums" {
@@ -232,8 +237,16 @@ func (r *Results) drawTab(dst *ebiten.Image, x, y, w float64) {
 			render.Text(dst, truncateW(s.Name, render.UI, 26, 300), render.UI, 26, x, yy, th.Text, render.Left)
 			bx := x + 320
 			render.FillRect(dst, bx, yy+10, 220, 14, render.WithAlpha(th.TextDim, 0.2))
+			if s.Judged() == 0 {
+				render.Text(dst, "not reached", render.Cond, 24, bx+240, yy+2, th.TextDim, render.Left)
+				continue
+			}
 			render.FillRect(dst, bx, yy+10, 220*acc, 14, col)
-			render.Text(dst, fmt.Sprintf("%d/%d", s.Hits, s.Total), render.Cond, 24, bx+240, yy+2, th.Text, render.Left)
+			frac := fmt.Sprintf("%d/%d", s.Hits, s.Total)
+			if s.Judged() < s.Total {
+				frac = fmt.Sprintf("%d/%d of %d", s.Hits, s.Judged(), s.Total)
+			}
+			render.Text(dst, frac, render.Cond, 24, bx+240, yy+2, th.Text, render.Left)
 			extra := fmt.Sprintf("%+.0f ms", s.MeanMs)
 			if s.Overstrums > 0 {
 				extra = fmt.Sprintf("%d over  ", s.Overstrums) + extra

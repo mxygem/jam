@@ -341,3 +341,52 @@ func TestDrums(t *testing.T) {
 		t.Errorf("non-pro hits = %d", e2.Stats().NotesHit)
 	}
 }
+
+func TestStrumAfterHammeredHOPO(t *testing.T) {
+	c, tr, _ := load(t)
+	if tr.Notes[2].Kind != chart.HOPO {
+		t.Fatalf("test chart: note 2 should be a HOPO, is %v", tr.Notes[2].Kind)
+	}
+	play := func(set Settings) Stats {
+		e := New(c, tr, set)
+		var s script
+		s.fret(0.45, action.Green, true)
+		s.strum(0.5)
+		s.fret(0.6, action.Green, false)
+		s.fret(0.95, action.Red, true)
+		s.strum(1.0)
+		s.fret(1.13, action.Yellow, true) // hammer the HOPO 37 ms early...
+		s.strum(1.20)                     // ...then strum it out of habit, 33 ms late
+		run(e, sortScript(s), 1.5)
+		return *e.Stats()
+	}
+	st := play(DefaultSettings())
+	if st.NotesHit != 3 || st.Overstrums != 0 || st.Streak != 3 {
+		t.Errorf("current rules: hit=%d over=%d streak=%d, want 3/0/3", st.NotesHit, st.Overstrums, st.Streak)
+	}
+	legacy := DefaultSettings()
+	legacy.Rules, legacy.ChordLenience = 0, 0
+	if st := play(legacy); st.Overstrums != 1 {
+		t.Errorf("rules 0 should still overstrum 70 ms after the hammer (recordings replay as judged), got %d", st.Overstrums)
+	}
+}
+
+func TestChordLenience(t *testing.T) {
+	c, tr, _ := load(t)
+	play := func(set Settings) Stats {
+		e := New(c, tr, set)
+		var s script
+		s.strum(0.5)
+		s.fret(0.54, action.Green, true) // fret lands 40 ms after the strum
+		run(e, sortScript(s), 0.8)
+		return *e.Stats()
+	}
+	if st := play(DefaultSettings()); st.NotesHit != 1 || st.Overstrums != 0 {
+		t.Errorf("50 ms chord lenience: hit=%d over=%d", st.NotesHit, st.Overstrums)
+	}
+	legacy := DefaultSettings()
+	legacy.Rules, legacy.ChordLenience = 0, 0
+	if st := play(legacy); st.Overstrums != 1 {
+		t.Errorf("legacy 25 ms lenience should overstrum, got %d", st.Overstrums)
+	}
+}

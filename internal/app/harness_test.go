@@ -117,4 +117,5 @@ func (h *harness) sweep(axis int, from, to float32, hold float64) {
 const (
 	keyEscape    = ebiten.KeyEscape
 	keyBackspace = ebiten.KeyBackspace
+	keyEnter     = ebiten.KeyEnter
 )

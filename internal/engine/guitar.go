@@ -8,10 +8,17 @@ import (
 	"github.com/mxygem/jam/internal/chart"
 )
 
-// FretAfterStrum is how long a strum waits for frets to land before it is
-// judged. Players often strum a few milliseconds before finishing a chord
-// shape; this keeps that from reading as an overstrum.
-const FretAfterStrum = 0.025
+// legacyChordLenience is how long a strum waited for frets to land under
+// rules version 0. Players often strum a little before finishing a chord
+// shape; the wait keeps that from reading as an overstrum.
+const legacyChordLenience = 0.025
+
+func (g *Guitar) chordLenience() float64 {
+	if g.set.ChordLenience > 0 {
+		return g.set.ChordLenience
+	}
+	return legacyChordLenience
+}
 
 type sustain struct {
 	note    int
@@ -31,7 +38,8 @@ type Guitar struct {
 	sus    []sustain
 
 	lastFretHit    float64
-	fretHitPending bool // a strum shortly after a fret hit is absorbed
+	fretHitPending bool    // a strum shortly after a fret hit is absorbed
+	forgiveUntil   float64 // ...up to this time
 
 	pendingStrum   float64
 	strumWaiting   bool
@@ -104,7 +112,7 @@ func (g *Guitar) Advance(t float64) {
 			at, kind = g.spEndsAt, 3
 		}
 		if g.strumWaiting {
-			if e := g.pendingStrum + FretAfterStrum; e < at {
+			if e := g.pendingStrum + g.chordLenience(); e < at {
 				at, kind = e, 4
 			}
 		}
@@ -228,7 +236,7 @@ func (g *Guitar) strum(t float64) {
 		g.strumWaiting = false
 		g.overstrum(g.pendingStrum)
 	}
-	if g.fretHitPending && t-g.lastFretHit <= g.set.StrumLenience {
+	if g.fretHitPending && t <= g.forgiveUntil {
 		g.fretHitPending = false
 		return
 	}
@@ -401,8 +409,29 @@ func (g *Guitar) hit(i int, t float64, via Via) {
 	if via == ViaFret {
 		g.lastFretHit = t
 		g.fretHitPending = true
+		g.forgiveUntil = t + g.set.StrumLenience
+		if g.set.Rules >= 1 {
+			g.forgiveUntil = g.strumForgiveness(i, t)
+		}
 	}
 	g.advanceNext()
+}
+
+// strumForgiveness returns until when a strum after hammering or tapping
+// note i (at time t) is absorbed instead of counting as an overstrum. Players
+// often strum HOPOs out of habit; strumming one on time is never punished.
+// The window runs to the end of the note's own hit window (at least the strum
+// lenience after the fret hit), but stops halfway to the next note so it
+// can't swallow a strum meant for that one.
+func (g *Guitar) strumForgiveness(i int, t float64) float64 {
+	n := &g.track.Notes[i]
+	until := n.Time + g.set.LateWindow
+	if i+1 < len(g.track.Notes) {
+		if mid := (n.Time + g.track.Notes[i+1].Time) / 2; mid < until {
+			until = mid
+		}
+	}
+	return math.Max(until, t+g.set.StrumLenience)
 }
 
 func (g *Guitar) miss(i int, t float64) {

@@ -22,12 +22,15 @@ type SectionStat struct {
 	MeanMs     float64
 }
 
-// Accuracy is hits / total for the section.
+// Judged is how many of the section's notes were reached (hit or missed).
+func (s SectionStat) Judged() int { return s.Hits + s.Misses }
+
+// Accuracy is hits / notes reached in the section.
 func (s SectionStat) Accuracy() float64 {
-	if s.Total == 0 {
+	if s.Judged() == 0 {
 		return 1
 	}
-	return float64(s.Hits) / float64(s.Total)
+	return float64(s.Hits) / float64(s.Judged())
 }
 
 // KindStat summarises hits by note type (guitar) or lane (drums).
@@ -393,7 +396,7 @@ func (a *Analysis) tips() {
 	}
 	worst := -1
 	for i, s := range a.Sections {
-		if s.Total < 8 {
+		if s.Judged() < 8 {
 			continue
 		}
 		if worst < 0 || s.Accuracy() < a.Sections[worst].Accuracy() {
@@ -477,8 +480,13 @@ func (a *Analysis) Text() string {
 	r := a.Rec
 	fmt.Fprintf(&b, "%s - %s  [%s %s]  %s\n", r.Song.Artist, r.Song.Name, r.Difficulty, r.Instrument, r.Started.Format("2006-01-02 15:04"))
 	res := r.Result
-	fmt.Fprintf(&b, "Score %d   %d/%d notes (%.1f%%)   max streak %d   overstrums %d   %s\n",
-		res.Score, res.NotesHit, res.NotesTotal, res.Accuracy*100, res.MaxStreak, res.Overstrums, strings.Repeat("*", res.Stars))
+	acc := res.HitRate()
+	reached := ""
+	if res.Reached() < res.NotesTotal {
+		reached = fmt.Sprintf(" of %d reached", res.Reached())
+	}
+	fmt.Fprintf(&b, "Score %d   %d/%d notes%s (%.1f%%)   max streak %d   overstrums %d   %s\n",
+		res.Score, res.NotesHit, res.NotesTotal, reached, acc*100, res.MaxStreak, res.Overstrums, strings.Repeat("*", res.Stars))
 	if !r.Completed {
 		fmt.Fprintf(&b, "(quit at %s)\n", fmtTime(r.EndTime))
 	}
@@ -509,6 +517,10 @@ func (a *Analysis) Text() string {
 	b.WriteString("\nSections:\n")
 	for _, s := range a.Sections {
 		if s.Total == 0 && s.Overstrums == 0 {
+			continue
+		}
+		if s.Judged() == 0 && s.Overstrums == 0 {
+			fmt.Fprintf(&b, "  %-24s %6s  not reached\n", truncate(s.Name, 24), fmtTime(s.Start))
 			continue
 		}
 		fmt.Fprintf(&b, "  %-24s %6s  %3d/%-3d  miss %-3d over %-3d  mean %+5.1f ms\n",

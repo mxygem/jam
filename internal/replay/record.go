@@ -56,6 +56,18 @@ type Summary struct {
 	Stars       int     `json:"stars"`
 }
 
+// Reached is how many notes the run got to (hit or missed).
+func (s Summary) Reached() int { return s.NotesHit + s.NotesMissed }
+
+// HitRate is hits over notes reached. Unlike the stored Accuracy of runs
+// recorded before that fix, it never counts an unplayed rest of the song.
+func (s Summary) HitRate() float64 {
+	if s.Reached() == 0 {
+		return 0
+	}
+	return float64(s.NotesHit) / float64(s.Reached())
+}
+
 // Recording is a complete playthrough.
 type Recording struct {
 	Version     int               `json:"version"`
@@ -121,8 +133,10 @@ func (r *Recorder) Finish(e engine.Engine, endTime float64, completed bool) *Rec
 		SPHit:       st.SPPhrasesHit,
 		SPActivated: st.SPActivations,
 	}
-	if st.NotesTotal > 0 {
-		rec.Result.Accuracy = float64(st.NotesHit) / float64(st.NotesTotal)
+	// Accuracy covers the notes the run reached, so ending a run early
+	// doesn't count the rest of the song as missed.
+	if judged := st.NotesHit + st.NotesMissed; judged > 0 {
+		rec.Result.Accuracy = float64(st.NotesHit) / float64(judged)
 	}
 	rec.Result.Stars = Stars(rec.Result.Accuracy, st.Score, e.Track())
 	return rec
