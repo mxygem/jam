@@ -23,7 +23,9 @@ import (
 	"github.com/mxygem/jam/internal/demo"
 	"github.com/mxygem/jam/internal/engine"
 	"github.com/mxygem/jam/internal/input"
+	"github.com/mxygem/jam/internal/library"
 	"github.com/mxygem/jam/internal/replay"
+	"github.com/mxygem/jam/internal/rich"
 )
 
 func main() {
@@ -164,7 +166,7 @@ func check(args []string) int {
 	insts := map[string]int{}
 	modes := map[string]int{}
 	exts := map[string]int{}
-	bad := 0
+	bad, lyrics, oddSyl, rated, art := 0, 0, 0, 0, 0
 	start := time.Now()
 	for _, s := range songs {
 		c, err := s.LoadChart()
@@ -184,6 +186,31 @@ func check(args []string) int {
 		}
 		if len(s.Stems) == 0 {
 			fmt.Printf("WARN  %s: no audio files\n", s.Dir)
+		}
+		if len(c.Lyrics) > 0 {
+			lyrics++
+			for _, ph := range c.Lyrics {
+				for _, sy := range ph.Syllables {
+					if strings.ContainsAny(rich.Plain(sy.Text), "+#^*%$/§_=") {
+						oddSyl++
+						if oddSyl <= 10 {
+							fmt.Printf("LYRIC %s: syllable %q at %.2f\n", s.Dir, sy.Text, sy.Time)
+						}
+					}
+				}
+			}
+		}
+		if in := library.Analyze(s); in.Err != "" {
+			fmt.Printf("ERROR %s: index: %s\n", s.Dir, in.Err)
+		} else {
+			for _, p := range in.Parts {
+				if p.Fw != nil {
+					rated++
+				}
+			}
+		}
+		if s.CoverArt != "" {
+			art++
 		}
 		// Make sure every track plays through the engine without trouble.
 		for _, t := range c.Tracks {
@@ -207,6 +234,7 @@ func check(args []string) int {
 		}
 		fmt.Printf("%s: %s\n", title, strings.Join(parts, ", "))
 	}
+	fmt.Printf("lyrics in %d charts (%d syllables with leftover symbols), album art in %d folders, %d parts with a Fretwork rating\n", lyrics, oddSyl, art, rated)
 	printMap("instruments", insts)
 	printMap("drum types", modes)
 	printMap("audio formats", exts)
