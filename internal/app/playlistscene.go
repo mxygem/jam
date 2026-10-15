@@ -280,7 +280,11 @@ func (p *PlaylistScene) Update(a *App) error {
 		p.openOptions(a)
 	}
 	if a.Pressed(action.MenuBack) {
-		a.SetScene(NewSongSelect(a))
+		if a.playlistFromMenu {
+			a.SetScene(NewMainMenu(a))
+		} else {
+			a.SetScene(NewSongSelect(a))
+		}
 	}
 	return nil
 }

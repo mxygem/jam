@@ -35,6 +35,7 @@ type Play struct {
 	rec   *replay.Recorder
 	hw    *render.Highway
 	hud   *render.HUD
+	lyr   *render.Lyrics
 	frame render.FrameState
 	hs    render.HUDState
 	drums bool
@@ -61,6 +62,7 @@ type Play struct {
 	paused     bool
 	pauseClock float64
 	pause      List
+	pset       *settingsMenu // settings opened from the pause menu
 
 	bot     []action.Event
 	botIdx  int
@@ -89,6 +91,9 @@ func NewPlay(a *App, s *chart.Song, c *chart.Chart, t *chart.Track, au *playback
 	}
 	p.hw = &render.Highway{Cfg: hc}
 	p.hud = &render.HUD{Highway: p.hw}
+	if set.ShowLyrics {
+		p.lyr = render.NewLyrics(c.Lyrics, 64)
+	}
 	p.audioOff = set.AudioOffsetMs / 1000
 	p.videoOff = set.VideoOffsetMs / 1000
 	p.mute = playback.StemFor(au, t.Key.Inst.String())
@@ -396,7 +401,7 @@ func (p *Play) openPause(a *App, now float64) {
 	p.paused = true
 	p.pauseClock = now
 	p.au.Pause()
-	p.pause = List{Visible: 4, Items: []Item{
+	p.pause = List{Visible: 5, Items: []Item{
 		{Label: "Resume", Activate: func() { p.resume(now) }},
 		{Label: "Restart", Activate: func() {
 			p.au.Pause()
@@ -406,6 +411,12 @@ func (p *Play) openPause(a *App, now float64) {
 			}
 			a.SetScene(NewPlay(a, p.song, p.c, p.t, p.au))
 		}},
+		{Label: "Settings", Hint: "Highway, effects, lyrics, volume and offsets change right away; gameplay settings apply when you restart",
+			Activate: func() {
+				p.pset = newSettingsMenu(a, true)
+				p.pset.cats.Visible = 9
+				p.pset.onChange = func() { p.applyLive(a) }
+			}},
 		{Label: "End run and review it", Activate: func() { p.finish(a, false) }},
 		{Label: quitLabel(a), Activate: func() {
 			p.au.Close()
@@ -429,7 +440,41 @@ func (p *Play) resume(float64) {
 	p.m.Reset()
 }
 
+// applyLive applies settings changed from the pause menu that can change
+// mid-song. Engine settings wait for a restart so a run is judged by one
+// set of rules.
+func (p *Play) applyLive(a *App) {
+	set := a.Settings
+	hc := set.Highway
+	if hc.NearWidth == 0 {
+		hc = render.DefaultHighway()
+	}
+	p.hw.Cfg = hc
+	p.frame.Fx = render.ParseFxLevel(set.HitFx)
+	p.hs.ShowTiming = set.ShowTiming
+	switch {
+	case !set.ShowLyrics:
+		p.lyr = nil
+	case p.lyr == nil:
+		p.lyr = render.NewLyrics(p.c.Lyrics, 64)
+	}
+	p.au.SetMaster(set.Volume)
+	p.audioOff = set.AudioOffsetMs / 1000
+	p.videoOff = set.VideoOffsetMs / 1000
+	p.rec.Rec.AudioOffset = set.AudioOffsetMs
+	p.rec.Rec.VideoOffset = set.VideoOffsetMs
+}
+
 func (p *Play) updatePause(a *App, now float64) error {
+	if p.pset != nil {
+		if p.pset.update(a) {
+			p.pset = nil
+			if err := a.Settings.Save(); err != nil {
+				a.Toast("Couldn't save settings: " + err.Error())
+			}
+		}
+		return nil
+	}
 	if p.pause.Update(a) {
 		return nil
 	}
@@ -470,6 +515,7 @@ func (p *Play) Draw(dst *ebiten.Image, a *App) {
 	}
 	f.Hits = keep
 	p.hw.Draw(dst, f)
+	p.lyr.Draw(dst, rn, p.hw.Cfg.CenterX, a.frame)
 
 	h := &p.hs
 	h.Now = rn
@@ -509,12 +555,36 @@ func (p *Play) Draw(dst *ebiten.Image, a *App) {
 			render.TextShadow(dst, fmt.Sprintf("%d", int(math.Ceil(left))), render.Display, 120, render.ScreenW/2, 420, render.WithAlpha(th.Text, math.Min(1, left)), render.Center)
 		}
 	}
-	if p.paused {
+	switch {
+	case p.paused && p.pset != nil:
+		p.drawPauseSettings(dst)
+	case p.paused:
 		render.FillRect(dst, 0, 0, render.ScreenW, render.ScreenH, render.RGBA(0, 0, 0, 0xA8))
-		Panel(dst, 600, 300, 720, 460)
-		render.Text(dst, "Paused", render.Display, 64, 640, 320, th.Text, render.Left)
-		p.pause.Draw(dst, 660, 430, 600, 72)
+		Panel(dst, 600, 270, 720, 560)
+		render.Text(dst, "Paused", render.Display, 64, 640, 290, th.Text, render.Left)
+		p.pause.Draw(dst, 660, 400, 600, 72)
+		if h := p.pause.Hint(); h != "" {
+			drawWrapped(dst, h, render.Cond, 22, 640, 770, 640, th.TextDim)
+		}
 	}
+}
+
+// drawPauseSettings shows the settings in a side panel, leaving the
+// highway visible so highway and effect changes can be seen as they're made.
+func (p *Play) drawPauseSettings(dst *ebiten.Image) {
+	m := p.pset
+	render.FillRect(dst, 0, 0, render.ScreenW, render.ScreenH, render.RGBA(0, 0, 0, 0x50))
+	x, w := 40.0, 600.0
+	Panel(dst, x-20, 40, w+40, render.ScreenH-80)
+	render.Text(dst, m.title(), render.Display, 48, x+4, 60, th.Text, render.Left)
+	sub := "Paused"
+	if m.page >= 0 {
+		sub = "Paused · Settings"
+	}
+	render.Text(dst, sub, render.Cond, 24, x+6, 122, th.TextDim, render.Left)
+	m.draw(dst, x+20, 180, w-40, 66)
+	drawWrapped(dst, m.hint(), render.Cond, 24, x+4, 180+float64(m.rows())*66+24, w-10, th.TextDim)
+	render.Text(dst, "Left/right change   Esc / red back", render.Cond, 22, x+4, render.ScreenH-90, render.WithAlpha(th.TextDim, 0.8), render.Left)
 }
 
 func quitLabel(a *App) string {

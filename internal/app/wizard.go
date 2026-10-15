@@ -107,7 +107,7 @@ func (w *Wizard) Update(a *App) error {
 	switch w.stage {
 	case stageDevice:
 		if esc {
-			a.SetScene(NewMainMenu(a))
+			a.SetScene(NewSettingsAt(a, pageControls))
 			return nil
 		}
 		for _, e := range a.Raw {
@@ -391,12 +391,12 @@ func (w *Wizard) save(a *App) {
 		log.Printf("wizard %s saved: %s = %v", w.fam, c.act.Title(), c.desc)
 	}
 	a.Toast("Saved " + string(w.fam) + " bindings for " + w.devName)
-	a.SetScene(NewMainMenu(a))
+	a.SetScene(NewSettingsAt(a, pageControls))
 }
 
 func (w *Wizard) updateTest(a *App, now float64, esc, back bool) {
 	if esc {
-		a.SetScene(NewMainMenu(a))
+		a.SetScene(NewSettingsAt(a, pageControls))
 		return
 	}
 	if back {

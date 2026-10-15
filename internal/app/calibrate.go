@@ -53,7 +53,7 @@ func NewCalibration(a *App) *Calibration {
 			Hint: "Strum (or hit anything) on each click you HEAR", Activate: func() { c.begin(a, calAudio) }},
 		{Label: "Video latency", Value: func() string { return fmt.Sprintf("%.0f ms", a.Settings.VideoOffsetMs) },
 			Hint: "Strum when each gem you SEE crosses the line", Activate: func() { c.begin(a, calVideo) }},
-		{Label: "Back", Activate: func() { a.SetScene(NewMainMenu(a)) }},
+		{Label: "Back", Activate: func() { a.SetScene(NewSettingsAt(a, pageAudio)) }},
 	}}
 	return c
 }
@@ -86,7 +86,7 @@ func (c *Calibration) Update(a *App) error {
 	case calMenu:
 		c.list.Update(a)
 		if a.Pressed(action.MenuBack) {
-			a.SetScene(NewMainMenu(a))
+			a.SetScene(NewSettingsAt(a, pageAudio))
 		}
 	case calAudio, calVideo:
 		for _, e := range a.Raw {

@@ -71,6 +71,10 @@ type App struct {
 	Queue  *playlist.Playlist // the playlist being built or played
 	Run    *playRun           // playing through a playlist
 
+	// playlistFromMenu: the playlist screen was opened from the main menu,
+	// so backing out returns there rather than to the song list.
+	playlistFromMenu bool
+
 	libMu     sync.Mutex
 	library   []*chart.Song
 	byDir     map[string]*chart.Song

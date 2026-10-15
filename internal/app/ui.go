@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
 
@@ -271,4 +272,31 @@ func plural(n int, word string) string {
 		return "1 " + word
 	}
 	return fmt.Sprintf("%d %ss", n, word)
+}
+
+// drawWrapped draws text word-wrapped to width w (at most 3 lines).
+func drawWrapped(dst *ebiten.Image, s string, f render.Font, size, x, y, w float64, c color.Color) {
+	words := strings.Fields(s)
+	line := ""
+	lines := 0
+	flush := func() {
+		if line != "" && lines < 3 {
+			render.Text(dst, line, f, size, x, y+float64(lines)*size*1.3, c, render.Left)
+			lines++
+		}
+		line = ""
+	}
+	for _, wd := range words {
+		try := wd
+		if line != "" {
+			try = line + " " + wd
+		}
+		if tw, _ := render.Measure(try, f, size); tw > w && line != "" {
+			flush()
+			line = wd
+		} else {
+			line = try
+		}
+	}
+	flush()
 }

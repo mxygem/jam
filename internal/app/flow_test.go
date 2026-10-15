@@ -139,7 +139,7 @@ func TestPauseMenuRestartAndQuit(t *testing.T) {
 	}
 	h.idle(4)
 	h.tap(bitStart)
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 4; i++ {
 		h.tap(bitDPadDown) // to "Quit to song list"
 	}
 	h.tap(bitA)
@@ -150,8 +150,9 @@ func TestPauseMenuRestartAndQuit(t *testing.T) {
 	h.until("play", 10, sceneIs[*Play](h), nil)
 	h.until("6 s in", 10, func() bool { return a.scene.(*Play).songNow(h.now) > 6 }, mashGuitar(h, rand.New(rand.NewSource(2))))
 	h.tap(bitStart)
-	h.tap(bitDPadDown)
-	h.tap(bitDPadDown) // "End run and review it"
+	for i := 0; i < 3; i++ {
+		h.tap(bitDPadDown) // to "End run and review it"
+	}
 	h.tap(bitA)
 	h.until("results", 2, sceneIs[*Results](h), nil)
 }

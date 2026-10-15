@@ -32,6 +32,7 @@ type Settings struct {
 	LastDifficulty string               `json:"last_difficulty,omitempty"`
 	LeadIn         float64              `json:"lead_in"` // seconds before the first note
 	HitFx          string               `json:"hit_fx"`  // hit effects: full, reduced, off
+	ShowLyrics     bool                 `json:"show_lyrics"`
 	Browse         Browse               `json:"browse"`
 }
 
@@ -84,6 +85,7 @@ func Default() *Settings {
 		VSync:      true,
 		LeadIn:     2.5,
 		HitFx:      "full",
+		ShowLyrics: true,
 		Browse:     Browse{Sort: "artist", DiffScale: "charter", Filter: Filter{InstMode: "all"}},
 	}
 }

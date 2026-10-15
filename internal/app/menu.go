@@ -6,7 +6,6 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 
 	"github.com/mxygem/jam/internal/clock"
-	"github.com/mxygem/jam/internal/input"
 	"github.com/mxygem/jam/internal/render"
 )
 
@@ -19,15 +18,13 @@ type MainMenu struct {
 func NewMainMenu(a *App) *MainMenu {
 	m := &MainMenu{}
 	m.list.Items = []Item{
-		{Label: "Play", Hint: "Pick a song from your library", Activate: func() { a.SetScene(NewSongSelect(a)) }},
-		{Label: "Guitar / bass setup", Hint: "Map and test a guitar controller (or keyboard)", Activate: func() { a.SetScene(NewWizard(a, input.FamilyGuitar)) }},
-		{Label: "Drum setup", Hint: "Map a MIDI drum kit pad by pad (or keyboard)", Activate: func() { a.SetScene(NewWizard(a, input.FamilyDrums)) }},
-		{Label: "Calibrate latency", Hint: "Measure audio and video delay so hits line up", Activate: func() { a.SetScene(NewCalibration(a)) }},
+		{Label: "Play", Hint: "Pick a song from your library", Activate: func() { a.playlistFromMenu = false; a.SetScene(NewSongSelect(a)) }},
+		{Label: "Playlists", Hint: "Build, save and play lists of songs", Activate: func() { a.playlistFromMenu = true; a.SetScene(NewPlaylistScene(a)) }},
 		{Label: "Past runs", Hint: "Review recorded playthroughs: timing, misses, sections", Activate: func() { a.SetScene(NewRuns(a)) }},
-		{Label: "Settings", Hint: "Highway, hit windows, volume, library folders", Activate: func() { a.SetScene(NewSettings(a)) }},
+		{Label: "Settings", Hint: "Gameplay, highway, audio and latency, controller and drum setup, song folders", Activate: func() { a.SetScene(NewSettings(a)) }},
 		{Label: "Quit", Activate: func() { a.Quit() }},
 	}
-	m.list.Visible = 7
+	m.list.Visible = 5
 	return m
 }
 
@@ -49,7 +46,7 @@ func (m *MainMenu) Draw(dst *ebiten.Image, a *App) {
 	render.Text(dst, "v"+Version, render.Cond, 24, 390, 300, th.TextDim, render.Left)
 
 	m.list.Draw(dst, 120, 380, 560, 76)
-	render.Text(dst, m.list.Hint(), render.UI, 26, 120, 380+7*76+20, th.TextDim, render.Left)
+	render.Text(dst, m.list.Hint(), render.UI, 26, 120, 380+5*76+20, th.TextDim, render.Left)
 
 	// devices panel
 	px, py, pw := 1180.0, 380.0, 640.0
