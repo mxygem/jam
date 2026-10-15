@@ -1,0 +1,5 @@
+/jam
+/jam.exe
+*.exe
+*.png
+/dist/
