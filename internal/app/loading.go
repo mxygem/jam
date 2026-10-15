@@ -58,6 +58,10 @@ func NewLoading(a *App, s *chart.Song, inst chart.Instrument, diff chart.Difficu
 func (l *Loading) Update(a *App) error {
 	if l.err != "" {
 		if a.Pressed(action.MenuBack) || a.Pressed(action.MenuConfirm) {
+			if a.Run != nil {
+				a.PlaylistNext() // skip the song that won't load
+				return nil
+			}
 			a.SetScene(NewSongSelect(a))
 		}
 		return nil

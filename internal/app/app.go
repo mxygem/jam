@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,8 +25,11 @@ import (
 	"github.com/mxygem/jam/internal/config"
 	"github.com/mxygem/jam/internal/demo"
 	"github.com/mxygem/jam/internal/input"
+	"github.com/mxygem/jam/internal/library"
 	"github.com/mxygem/jam/internal/playback"
+	"github.com/mxygem/jam/internal/playlist"
 	"github.com/mxygem/jam/internal/render"
+	"github.com/mxygem/jam/internal/replay"
 )
 
 // Version of the app.
@@ -61,13 +65,21 @@ type App struct {
 	FFmpeg   string
 	NoAudio  bool // JAM_NOAUDIO=1: no sound device (headless tests)
 
+	Index  *library.Index
+	Scores *replay.Scores
+	Art    *artCache
+	Queue  *playlist.Playlist // the playlist being built or played
+	Run    *playRun           // playing through a playlist
+
 	libMu     sync.Mutex
 	library   []*chart.Song
+	byDir     map[string]*chart.Song
 	scanning  bool
 	scanErr   string
 	scanCount int
 
 	scene     Scene
+	Mouse     Mouse
 	Raw       []input.RawEvent
 	MenuActs  []action.Action
 	Chars     []rune
@@ -147,6 +159,10 @@ func Run(opts Options) error {
 	})
 	log.Printf("library folders: %v, ffmpeg: %q, audio: %v", settings.LibraryPaths, a.FFmpeg, !a.NoAudio)
 
+	a.Index = library.Open(filepath.Join(config.Dir(), "library.json.gz"))
+	a.Scores = replay.LoadScores(filepath.Join(config.Dir(), "scores.json"), config.RunsDir())
+	a.Art = newArtCache()
+	a.Queue = &playlist.Playlist{}
 	if _, err := demo.Write(config.SongsDir()); err != nil {
 		log.Printf("demo song: %v", err)
 	}
@@ -231,12 +247,45 @@ func (a *App) RescanLibrary() {
 		paths = append(paths, config.SongsDir())
 	}
 	go func() {
+		start := time.Now()
 		songs := chart.ScanLibrary(paths)
+		byDir := make(map[string]*chart.Song, len(songs))
+		for _, s := range songs {
+			byDir[dirKey(s.Dir)] = s
+		}
 		a.libMu.Lock()
 		a.library = songs
+		a.byDir = byDir
 		a.scanning = false
 		a.libMu.Unlock()
+		log.Printf("library: %d songs found in %.1fs", len(songs), time.Since(start).Seconds())
+		if a.Index != nil {
+			a.Index.Update(songs)
+		}
 	}()
+}
+
+func dirKey(dir string) string { return strings.ToLower(filepath.Clean(dir)) }
+
+// SongByDir finds a library song by its folder.
+func (a *App) SongByDir(dir string) *chart.Song {
+	a.libMu.Lock()
+	defer a.libMu.Unlock()
+	return a.byDir[dirKey(dir)]
+}
+
+// SongInfo returns the library index entry for a song, analyzing the chart
+// right away if the background indexer hasn't reached it yet.
+func (a *App) SongInfo(s *chart.Song) *library.Info {
+	if s == nil {
+		return nil
+	}
+	if in := a.Index.Get(s); in != nil {
+		return in
+	}
+	in := library.Analyze(s)
+	a.Index.Put(s, in)
+	return in
 }
 
 func contains(xs []string, s string) bool {
@@ -297,6 +346,7 @@ func (a *App) Update() (err error) {
 	a.Raw = a.Input.Poll(a.Raw[:0])
 	a.MenuActs = a.Menu.Feed(a.Raw, now)
 	a.Chars = ebiten.AppendInputChars(a.Chars[:0])
+	a.Mouse.update()
 	a.checkShotRequest()
 	if inpututil.IsKeyJustPressed(ebiten.KeyF11) || (inpututil.IsKeyJustPressed(ebiten.KeyEnter) && ebiten.IsKeyPressed(ebiten.KeyAlt)) {
 		fs := !ebiten.IsFullscreen()

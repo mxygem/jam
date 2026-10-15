@@ -54,11 +54,24 @@ func (r *Results) Update(a *App) error {
 		case action.MenuDown:
 			r.scroll++
 		case action.MenuConfirm:
+			if a.Run != nil && r.song != nil {
+				a.PlaylistNext()
+				return nil
+			}
 			if r.song != nil && r.t != nil {
 				a.SetScene(NewLoading(a, r.song, r.t.Key.Inst, r.t.Key.Diff))
 				return nil
 			}
+		case action.MenuOptions:
+			if a.Run != nil && r.song != nil && r.t != nil { // retry inside a playlist
+				a.SetScene(NewLoading(a, r.song, r.t.Key.Inst, r.t.Key.Diff))
+				return nil
+			}
 		case action.MenuBack:
+			if a.Run != nil && r.song != nil {
+				a.EndPlaylist()
+				return nil
+			}
 			r.back(a)
 			return nil
 		}
@@ -188,6 +201,13 @@ func (r *Results) Draw(dst *ebiten.Image, a *App) {
 	foot := "Left/right tabs     Up/down scroll     Esc / red back"
 	if r.song != nil {
 		foot = "Enter / green retry     " + foot
+	}
+	if a.Run != nil && r.song != nil {
+		next := "finish playlist"
+		if e := a.Run.Next(); e != nil {
+			next = "next: " + truncateW(e.Title, render.Cond, 26, 520)
+		}
+		foot = fmt.Sprintf("Enter / green %s     Tab / yellow retry     Left/right tabs     Esc / red leave playlist (%d of %d)", next, a.Run.idx+1, len(a.Run.list.Entries))
 	}
 	if r.path != "" {
 		foot += "     saved: " + filepath.Base(r.path)

@@ -387,6 +387,7 @@ func (p *Play) finish(a *App, completed bool) {
 		if err != nil {
 			a.Toast("Couldn't save the run: " + err.Error())
 		}
+		a.Scores.Add(rec)
 	}
 	a.SetScene(NewResults(a, rec, path, p.c, p.t, p.song))
 }
@@ -406,8 +407,12 @@ func (p *Play) openPause(a *App, now float64) {
 			a.SetScene(NewPlay(a, p.song, p.c, p.t, p.au))
 		}},
 		{Label: "End run and review it", Activate: func() { p.finish(a, false) }},
-		{Label: "Quit to song list", Activate: func() {
+		{Label: quitLabel(a), Activate: func() {
 			p.au.Close()
+			if a.Run != nil {
+				a.EndPlaylist()
+				return
+			}
 			a.SetScene(NewSongSelect(a))
 		}},
 	}}
@@ -510,4 +515,11 @@ func (p *Play) Draw(dst *ebiten.Image, a *App) {
 		render.Text(dst, "Paused", render.Display, 64, 640, 320, th.Text, render.Left)
 		p.pause.Draw(dst, 660, 430, 600, 72)
 	}
+}
+
+func quitLabel(a *App) string {
+	if a.Run != nil {
+		return "Quit the playlist"
+	}
+	return "Quit to song list"
 }

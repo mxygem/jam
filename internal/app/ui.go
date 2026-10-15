@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"image/color"
 	"math"
 
@@ -30,6 +31,10 @@ type List struct {
 	Sel     int
 	Top     int
 	Visible int
+
+	// where it was last drawn, for the mouse
+	gx, gy, gw, gh float64
+	drawn          bool
 }
 
 // Update handles navigation. It returns true if an item was activated.
@@ -74,6 +79,9 @@ func (l *List) Update(a *App) bool {
 			}
 		}
 	}
+	if l.mouse(a) {
+		return true
+	}
 	if l.Sel < l.Top {
 		l.Top = l.Sel
 	}
@@ -83,11 +91,62 @@ func (l *List) Update(a *App) bool {
 	return false
 }
 
+// mouse handles hover, click and wheel. It returns true if an item was
+// activated.
+func (l *List) mouse(a *App) bool {
+	m := &a.Mouse
+	if !l.drawn {
+		return false
+	}
+	if m.Wheel != 0 && m.In(l.gx-20, l.gy-20, l.gw+40, l.gh*float64(l.Visible)+40) {
+		steps := int(-m.Wheel)
+		if steps == 0 {
+			steps = -1
+			if m.Wheel < 0 {
+				steps = 1
+			}
+		}
+		l.Top = max(0, min(len(l.Items)-l.Visible, l.Top+steps))
+		l.Sel = max(l.Top, min(l.Top+l.Visible-1, l.Sel))
+	}
+	if !m.Moved && !m.Click {
+		return false
+	}
+	i := l.Top + int((m.Y-l.gy+6)/l.gh)
+	if m.X < l.gx-16 || m.X > l.gx+l.gw+16 || m.Y < l.gy-6 || i < l.Top || i >= len(l.Items) || i >= l.Top+l.Visible {
+		return false
+	}
+	if l.Items[i].Disabled {
+		return false
+	}
+	l.Sel = i
+	if !m.Click {
+		return false
+	}
+	it := l.Items[i]
+	switch {
+	case it.Adjust != nil && it.Value != nil:
+		// clicking the left part of the value steps back, elsewhere forward
+		if m.X > l.gx+l.gw*0.55 && m.X < l.gx+l.gw*0.78 {
+			it.Adjust(-1)
+		} else {
+			it.Adjust(1)
+		}
+	case it.Activate != nil:
+		it.Activate()
+		return true
+	case it.Adjust != nil:
+		it.Adjust(1)
+	}
+	return false
+}
+
 // Draw renders the list with its top-left at x, y.
 func (l *List) Draw(dst *ebiten.Image, x, y, w, rowH float64) {
 	if l.Visible == 0 {
 		l.Visible = 10
 	}
+	l.gx, l.gy, l.gw, l.gh, l.drawn = x, y, w, rowH, true
 	now := clock.Now()
 	for i := l.Top; i < len(l.Items) && i < l.Top+l.Visible; i++ {
 		it := l.Items[i]
@@ -151,7 +210,14 @@ func Footer(dst *ebiten.Image, s string) {
 
 // Panel draws a rounded translucent panel.
 func Panel(dst *ebiten.Image, x, y, w, h float64) {
-	render.RoundRect(dst, x, y, w, h, 18, th.Panel)
+	c := th.Panel
+	c.A = 0xFF // opaque so dialogs don't show what's behind them
+	render.RoundRect(dst, x, y, w, h, 18, c)
+}
+
+// GlassPanel is a panel that lets a backdrop (album art) show through.
+func GlassPanel(dst *ebiten.Image, x, y, w, h float64) {
+	render.RoundRect(dst, x, y, w, h, 18, color.RGBA{0x0c, 0x0e, 0x18, 0xB8})
 }
 
 // MenuBackground is the shared animated menu backdrop.
@@ -166,4 +232,43 @@ func MenuBackground(dst *ebiten.Image) {
 		b.Line(dst, 1100, y, 1920, y+300, 2, render.WithAlpha(th.Accent, a), render.WithAlpha(th.Accent, 0))
 	}
 	b.Flush(dst)
+}
+
+func fmtDur(sec float64) string {
+	if sec <= 0 {
+		return "?"
+	}
+	m := int(sec) / 60
+	return fmt.Sprintf("%d:%02d", m, int(sec)%60)
+}
+
+func sortStrings(xs []string) []string {
+	for i := 1; i < len(xs); i++ {
+		for j := i; j > 0 && xs[j] < xs[j-1]; j-- {
+			xs[j], xs[j-1] = xs[j-1], xs[j]
+		}
+	}
+	return xs
+}
+
+// truncateW shortens s with an ellipsis to fit width w.
+func truncateW(s string, f render.Font, size, w float64) string {
+	if tw, _ := render.Measure(s, f, size); tw <= w {
+		return s
+	}
+	r := []rune(s)
+	for len(r) > 1 {
+		r = r[:len(r)-1]
+		if tw, _ := render.Measure(string(r)+"...", f, size); tw <= w {
+			return string(r) + "..."
+		}
+	}
+	return s
+}
+
+func plural(n int, word string) string {
+	if n == 1 {
+		return "1 " + word
+	}
+	return fmt.Sprintf("%d %ss", n, word)
 }

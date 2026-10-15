@@ -1,6 +1,7 @@
 package app
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -8,7 +9,10 @@ import (
 	"github.com/mxygem/jam/internal/clock"
 	"github.com/mxygem/jam/internal/config"
 	"github.com/mxygem/jam/internal/input"
+	"github.com/mxygem/jam/internal/library"
 	"github.com/mxygem/jam/internal/playback"
+	"github.com/mxygem/jam/internal/playlist"
+	"github.com/mxygem/jam/internal/replay"
 )
 
 // harness drives scenes frame by frame with a fake clock and scripted raw
@@ -31,6 +35,10 @@ func newHarness(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	a := &App{Settings: settings, Bindings: b, NoAudio: true, SFX: playback.NewSFX(nil)}
+	a.Index = library.Open(filepath.Join(config.Dir(), "library.json.gz"))
+	a.Scores = replay.LoadScores(filepath.Join(config.Dir(), "scores.json"), config.RunsDir())
+	a.Art = newArtCache()
+	a.Queue = &playlist.Playlist{}
 	a.Input = input.NewBackground()
 	t.Cleanup(a.Input.Close)
 	a.Menu = input.NewMenuInput(a.Bindings, a.Input.Devices())

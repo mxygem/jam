@@ -43,6 +43,7 @@ var guitarMenu = map[action.Action]action.Action{
 	action.Green: action.MenuConfirm, action.Start: action.MenuConfirm,
 	action.Red: action.MenuBack, action.Select: action.MenuBack,
 	action.Blue: action.MenuLeft, action.Orange: action.MenuRight,
+	action.Yellow: action.MenuOptions,
 }
 
 var drumMenu = map[action.Action]action.Action{
@@ -58,6 +59,7 @@ var keyMenu = map[ebiten.Key]action.Action{
 	ebiten.KeyEnter: action.MenuConfirm, ebiten.KeyNumpadEnter: action.MenuConfirm,
 	ebiten.KeyEscape: action.MenuBack,
 	ebiten.KeyPageUp: action.MenuLeft, ebiten.KeyPageDown: action.MenuRight,
+	ebiten.KeyTab: action.MenuOptions,
 }
 
 // Feed converts raw events into menu actions (presses only).

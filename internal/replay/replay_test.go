@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mxygem/jam/internal/action"
 	"github.com/mxygem/jam/internal/chart"
@@ -116,5 +117,35 @@ func TestSaveNameStripsTags(t *testing.T) {
 	base := filepath.Base(path)
 	if strings.ContainsAny(base, "<>:/?\\\"|*") || !strings.Contains(base, "gem - 김진산 Crow") {
 		t.Errorf("file name %q", base)
+	}
+}
+
+func TestScoresIndex(t *testing.T) {
+	dir := t.TempDir()
+	runs := filepath.Join(dir, "runs")
+	mk := func(score int64, hit, missed int, completed bool) *Recording {
+		return &Recording{Started: time.Now(), Song: SongRef{Dir: `E:\charts\Song`, Name: "Song"}, Instrument: "guitar", Difficulty: "expert",
+			Completed: completed, Result: Summary{Score: score, NotesTotal: 100, NotesHit: hit, NotesMissed: missed}}
+	}
+	for i, score := range []int64{5000, 8000} {
+		r := mk(score, 90+10*i, 10-10*i, true)
+		if _, err := r.Save(runs); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(1100 * time.Millisecond) // run files are named by the second
+	}
+	s := LoadScores(filepath.Join(dir, "scores.json"), runs) // built from the run files
+	b := s.Best(`e:\charts\song`, "guitar", "expert")
+	if b == nil || b.Score != 8000 || b.Plays != 2 || !b.FullCombo || b.HitRate != 1 {
+		t.Fatalf("best from runs: %+v", b)
+	}
+	s.Add(mk(3000, 40, 5, false)) // worse, ended early
+	s2 := LoadScores(filepath.Join(dir, "scores.json"), runs)
+	b = s2.Best(`E:\charts\Song`, "guitar", "expert")
+	if b.Score != 8000 || b.Plays != 3 {
+		t.Fatalf("after a worse run: %+v", b)
+	}
+	if s2.Played(`E:\charts\Song`) != 3 || len(s2.ForSong(`E:\charts\Song`)) != 1 {
+		t.Fatal("per-song lookups")
 	}
 }

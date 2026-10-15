@@ -44,6 +44,7 @@ const (
 	MenuRight
 	MenuConfirm
 	MenuBack
+	MenuOptions // song list options (sort, filters, playlists)
 
 	Count
 )
@@ -60,7 +61,7 @@ var names = [...]string{
 	Start: "start", Select: "select",
 
 	MenuUp: "menu_up", MenuDown: "menu_down", MenuLeft: "menu_left", MenuRight: "menu_right",
-	MenuConfirm: "menu_confirm", MenuBack: "menu_back",
+	MenuConfirm: "menu_confirm", MenuBack: "menu_back", MenuOptions: "menu_options",
 }
 
 var titles = [...]string{
@@ -76,7 +77,7 @@ var titles = [...]string{
 	Start: "Start", Select: "Select",
 
 	MenuUp: "Menu up", MenuDown: "Menu down", MenuLeft: "Menu left", MenuRight: "Menu right",
-	MenuConfirm: "Menu confirm", MenuBack: "Menu back",
+	MenuConfirm: "Menu confirm", MenuBack: "Menu back", MenuOptions: "Menu options",
 }
 
 func (a Action) String() string {

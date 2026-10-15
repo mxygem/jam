@@ -44,6 +44,10 @@ func withDemoLibrary(h *harness) {
 	if len(h.a.library) == 0 {
 		h.t.Fatal("demo song not found by the scanner")
 	}
+	h.a.byDir = map[string]*chart.Song{}
+	for _, s := range h.a.library {
+		h.a.byDir[dirKey(s.Dir)] = s
+	}
 }
 
 // mashGuitar returns random but plausible guitar input: frets come and go,

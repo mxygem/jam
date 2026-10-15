@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Stem names, following the reserved audio file names used by Clone Hero.
@@ -48,8 +49,14 @@ type Song struct {
 	Ini       *SongIni
 
 	Name, Artist, Album, Genre, Year, Charter string
+	Icon                                      string // song.ini icon: the source game or pack
+	Playlist                                  string // song.ini playlist / sub_playlist
+	LoadingPhrase                             string
 	LengthMs                                  int64
 	PreviewMs                                 int64
+	AlbumTrack                                int
+	Root                                      string    // library folder it was found under
+	Added                                     time.Time // when the folder was created or last changed
 
 	Stems    map[string]string // stem name -> file path
 	CoverArt string
@@ -126,9 +133,11 @@ func LoadSongFolder(dir string) (*Song, error) {
 					s.Stems[base] = filepath.Join(dir, name)
 				}
 			}
-		case base == "album" || base == "cover":
-			if ext == ".png" || ext == ".jpg" || ext == ".jpeg" {
-				s.CoverArt = filepath.Join(dir, name)
+		case base == "album" || base == "cover" || base == "folder":
+			if ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".webp" {
+				if s.CoverArt == "" || base == "album" {
+					s.CoverArt = filepath.Join(dir, name)
+				}
 			}
 		}
 	}
@@ -193,6 +202,20 @@ func (s *Song) fillMeta() {
 	if v, ok := ini.Int("preview_start_time"); ok {
 		s.PreviewMs = v
 	}
+	s.Icon = ini.String("icon")
+	s.Playlist = ini.String("playlist")
+	if s.Playlist == "" {
+		s.Playlist = ini.String("sub_playlist")
+	}
+	s.LoadingPhrase = ini.String("loading_phrase")
+	if v, ok := ini.Int("album_track"); ok {
+		s.AlbumTrack = int(v)
+	} else if v, ok := ini.Int("track"); ok {
+		s.AlbumTrack = int(v)
+	}
+	if st, err := os.Stat(s.Dir); err == nil {
+		s.Added = st.ModTime()
+	}
 	if s.Name == "" || s.Artist == "" {
 		// Fall back to the .chart [Song] section, then the folder name.
 		if !strings.EqualFold(filepath.Ext(s.ChartPath), ".mid") {
@@ -255,6 +278,7 @@ func ScanLibrary(roots []string) []*Song {
 			s, err := LoadSongFolder(path)
 			if err == nil {
 				seen[key] = true
+				s.Root = root
 				songs = append(songs, s)
 			}
 			return nil

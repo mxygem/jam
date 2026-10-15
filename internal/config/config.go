@@ -32,6 +32,45 @@ type Settings struct {
 	LastDifficulty string               `json:"last_difficulty,omitempty"`
 	LeadIn         float64              `json:"lead_in"` // seconds before the first note
 	HitFx          string               `json:"hit_fx"`  // hit effects: full, reduced, off
+	Browse         Browse               `json:"browse"`
+}
+
+// Browse is how the song list is sorted, filtered and rated.
+type Browse struct {
+	Sort      string `json:"sort"`       // see app.sortKeys
+	Desc      bool   `json:"desc"`       // reverse order
+	DiffScale string `json:"diff_scale"` // charter, fretwork, fwtier, nps
+	Filter    Filter `json:"filter"`
+}
+
+// Filter narrows the song list. It does nothing unless Enabled.
+type Filter struct {
+	Enabled     bool          `json:"enabled"`
+	Instruments []string      `json:"instruments"` // guitar, bass, rhythm, guitar_coop, keys, drums, vocals
+	InstMode    string        `json:"inst_mode"`   // all, any, only
+	Fields      []FieldFilter `json:"fields"`
+}
+
+// FieldFilter keeps songs whose field contains the text (any case).
+type FieldFilter struct {
+	Field string `json:"field"` // title, artist, album, charter, genre, year, source, folder, playlist, any
+	Text  string `json:"text"`
+}
+
+// Active reports whether the filter narrows anything.
+func (f Filter) Active() bool {
+	if !f.Enabled {
+		return false
+	}
+	if len(f.Instruments) > 0 {
+		return true
+	}
+	for _, ff := range f.Fields {
+		if ff.Text != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // Default returns fresh settings.
@@ -45,6 +84,7 @@ func Default() *Settings {
 		VSync:      true,
 		LeadIn:     2.5,
 		HitFx:      "full",
+		Browse:     Browse{Sort: "artist", DiffScale: "charter", Filter: Filter{InstMode: "all"}},
 	}
 }
 
