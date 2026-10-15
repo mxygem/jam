@@ -16,9 +16,11 @@ import (
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2/audio"
+
 	"github.com/hajimehoshi/ebiten/v2/audio/mp3"
 	"github.com/hajimehoshi/ebiten/v2/audio/vorbis"
 	"github.com/hajimehoshi/ebiten/v2/audio/wav"
+	"github.com/mxygem/jam/internal/clock"
 )
 
 // SampleRate of the audio context.
@@ -49,7 +51,7 @@ type Song struct {
 	silent    bool
 	length    float64
 	playing   bool
-	playedAt  time.Time
+	playedAt  float64 // clock.Now() when play started
 	pausedPos float64
 }
 
@@ -222,7 +224,7 @@ func (s *Song) Duration() float64 {
 func (s *Song) Play() {
 	if s.silent && !s.playing {
 		s.playing = true
-		s.playedAt = time.Now()
+		s.playedAt = clock.Now()
 	}
 	for _, st := range s.Stems {
 		st.Player.Play()
@@ -256,7 +258,7 @@ func (s *Song) Seek(t float64) {
 	d := time.Duration(t * float64(time.Second))
 	if s.silent {
 		s.pausedPos = t
-		s.playedAt = time.Now()
+		s.playedAt = clock.Now()
 	}
 	for _, st := range s.Stems {
 		_ = st.Player.SetPosition(d)
@@ -269,7 +271,7 @@ func (s *Song) Position() float64 {
 		if !s.playing {
 			return s.pausedPos
 		}
-		return s.pausedPos + time.Since(s.playedAt).Seconds()
+		return s.pausedPos + clock.Now() - s.playedAt
 	}
 	return s.main.Player.Position().Seconds()
 }
