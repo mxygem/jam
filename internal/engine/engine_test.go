@@ -180,7 +180,7 @@ func TestHOPOByFret(t *testing.T) {
 	s.fret(0.98, action.Green, false)
 	s.strum(1.0)
 	s.fret(1.165, action.Yellow, true) // hammer on to yellow at 1.1667
-	s.strum(1.18)                       // stray strum just after: absorbed by lenience
+	s.strum(1.18)                      // stray strum just after: absorbed by lenience
 	run(e, sortScript(s), 1.3)
 	st := e.Stats()
 	if st.NotesHit != 3 || st.Overstrums != 0 {

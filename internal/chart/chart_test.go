@@ -113,7 +113,7 @@ func TestDotChartGuitar(t *testing.T) {
 		{384, "----O", Strum}, // 128 ticks away > 65 threshold
 		{448, "--Y--", Tap},
 		{768, "open", Strum},
-		{832, "G----", HOPO}, // open -> green within threshold
+		{832, "G----", HOPO},  // open -> green within threshold
 		{1000, "-R---", HOPO}, // far, but forced flip
 	}
 	if len(tr.Notes) != len(wants) {
@@ -257,9 +257,9 @@ func TestMidiGuitarAndDrums(t *testing.T) {
 	guitar := buildTrack("PART GUITAR", sortEvs(g))
 
 	var d []midiEv
-	d = append(d, note(0, 10, 96)...)  // kick
-	d = append(d, note(0, 10, 98)...)  // yellow (cymbal by default)
-	d = append(d, note(240, 10, 99)...) // blue
+	d = append(d, note(0, 10, 96)...)    // kick
+	d = append(d, note(0, 10, 98)...)    // yellow (cymbal by default)
+	d = append(d, note(240, 10, 99)...)  // blue
 	d = append(d, note(240, 10, 111)...) // blue tom marker
 	drums := buildTrack("PART DRUMS", sortEvs(d))
 

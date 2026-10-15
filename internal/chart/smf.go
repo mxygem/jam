@@ -16,10 +16,12 @@ type smfEvent struct {
 	data   []byte // meta / sysex payload
 }
 
-func (e smfEvent) isNoteOn() bool  { return e.status&0xF0 == 0x90 && e.data2 > 0 }
-func (e smfEvent) isNoteOff() bool { return e.status&0xF0 == 0x80 || (e.status&0xF0 == 0x90 && e.data2 == 0) }
-func (e smfEvent) channel() byte   { return e.status & 0x0F }
-func (e smfEvent) isText() bool    { return e.status == 0xFF && e.meta >= 0x01 && e.meta <= 0x0F }
+func (e smfEvent) isNoteOn() bool { return e.status&0xF0 == 0x90 && e.data2 > 0 }
+func (e smfEvent) isNoteOff() bool {
+	return e.status&0xF0 == 0x80 || (e.status&0xF0 == 0x90 && e.data2 == 0)
+}
+func (e smfEvent) channel() byte { return e.status & 0x0F }
+func (e smfEvent) isText() bool  { return e.status == 0xFF && e.meta >= 0x01 && e.meta <= 0x0F }
 
 type smfTrack struct {
 	name   string

@@ -19,10 +19,10 @@ type Settings struct {
 	LateWindow    float64 `json:"late_window"`    // seconds after a note it may be hit
 	StrumLenience float64 `json:"strum_lenience"` // ignore a strum this soon after a fret-hit HOPO/tap
 	NoFail        bool    `json:"no_fail"`
-	ExpertPlus    bool    `json:"expert_plus"`     // drums: play 2x kick notes
-	ProDrums      bool    `json:"pro_drums"`       // drums: cymbals and toms must match
-	OverhitBreaks bool    `json:"overhit_breaks"`  // drums: extra hits break the streak
-	BassMaxMult   int     `json:"bass_max_mult"`   // max streak multiplier for bass (4 GH style, 6 RB style)
+	ExpertPlus    bool    `json:"expert_plus"`    // drums: play 2x kick notes
+	ProDrums      bool    `json:"pro_drums"`      // drums: cymbals and toms must match
+	OverhitBreaks bool    `json:"overhit_breaks"` // drums: extra hits break the streak
+	BassMaxMult   int     `json:"bass_max_mult"`  // max streak multiplier for bass (4 GH style, 6 RB style)
 }
 
 // DefaultSettings are tuned to feel like Clone Hero's defaults.
@@ -230,7 +230,7 @@ func (b *base) init(c *chart.Chart, t *chart.Track, s Settings) {
 	b.spEndsAt = math.Inf(1)
 }
 
-func (b *base) Stats() *Stats          { return &b.stats }
+func (b *base) Stats() *Stats { return &b.stats }
 
 func (b *base) SPAlive(note int) bool {
 	if note < 0 || note >= len(b.phraseOf) {
@@ -239,8 +239,8 @@ func (b *base) SPAlive(note int) bool {
 	pi := b.phraseOf[note]
 	return pi >= 0 && !b.phraseBroken[pi]
 }
-func (b *base) Judgments() []Judgment  { return b.judg }
-func (b *base) Track() *chart.Track    { return b.track }
+func (b *base) Judgments() []Judgment { return b.judg }
+func (b *base) Track() *chart.Track   { return b.track }
 
 // Multiplier is the current multiplier including star power.
 func (b *base) Multiplier() int {

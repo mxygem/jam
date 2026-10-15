@@ -13,14 +13,14 @@ import (
 )
 
 type songInfo struct {
-	err     string
-	insts   []chart.Instrument
-	diffs   map[chart.Instrument][]chart.Difficulty
-	counts  map[chart.TrackKey]int
-	length  float64
-	drums   chart.DrumMode
-	source  string
-	tempo   float64
+	err    string
+	insts  []chart.Instrument
+	diffs  map[chart.Instrument][]chart.Difficulty
+	counts map[chart.TrackKey]int
+	length float64
+	drums  chart.DrumMode
+	source string
+	tempo  float64
 }
 
 // SongSelect lists the library.

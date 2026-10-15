@@ -50,9 +50,9 @@ type MissDetail struct {
 
 // StreakBreak is a moment the streak reset.
 type StreakBreak struct {
-	Time   float64
-	Lost   int
-	Cause  string
+	Time    float64
+	Lost    int
+	Cause   string
 	Section string
 }
 

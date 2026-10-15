@@ -42,7 +42,14 @@ func NewLoading(a *App, s *chart.Song, inst chart.Instrument, diff chart.Difficu
 			l.done <- loadResult{c: c, audio: playback.Silent(c.LastTime() + 3)}
 			return
 		}
+		t0 := clock.Now()
 		au, err := playback.Load(a.Audio, s.Stems, a.FFmpeg)
+		if err == nil {
+			for _, st := range au.Stems {
+				log.Printf("stem %s: %s (%.1fs)", st.Name, st.Path, st.Length)
+			}
+			log.Printf("audio for %q ready in %.2fs", s.Title(), clock.Now()-t0)
+		}
 		l.done <- loadResult{c: c, audio: au, err: err}
 	}()
 	return l

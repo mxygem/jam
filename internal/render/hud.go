@@ -20,8 +20,8 @@ type HUDState struct {
 	Now         float64
 	Score       float64
 	Streak      int
-	Mult        int  // including star power
-	BaseMax     int  // max multiplier without star power
+	Mult        int // including star power
+	BaseMax     int // max multiplier without star power
 	SPEnergy    float64
 	SPActive    bool
 	Rock        float64

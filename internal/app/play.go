@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"image/color"
+	"log"
 	"math"
 	"sort"
 
@@ -61,8 +62,8 @@ type Play struct {
 	pauseClock float64
 	pause      List
 
-	bot    []action.Event
-	botIdx int
+	bot     []action.Event
+	botIdx  int
 	botHeld uint8
 
 	mapped []input.Mapped
@@ -156,6 +157,7 @@ func (p *Play) Update(a *App) error {
 
 	// Start audio when the lead-in ends.
 	if !p.started && p.songNow(now) >= 0 {
+		log.Printf("play: %s, %s %s, %d notes, stems %d, mute on miss %v", p.song.Title(), p.t.Key.Diff.Title(), p.t.Key.Inst.Title(), len(p.t.Notes), len(p.au.Stems), p.mute)
 		p.au.Play()
 		p.started = true
 		p.startClock = now
@@ -259,6 +261,7 @@ func (p *Play) syncToAudio(now float64) {
 			sort.Float64s(s)
 			p.bias = s[len(s)/2]
 			p.biasSet = true
+			log.Printf("audio sync: player position leads the song clock by %.1f ms (spread %.1f ms)", p.bias*1000, (s[len(s)*9/10]-s[len(s)/10])*1000)
 		}
 		return
 	}
@@ -369,6 +372,7 @@ func (p *Play) finish(a *App, completed bool) {
 	end := p.songNow(clock.Now()) - p.audioOff
 	p.eng.Advance(end)
 	rec := p.rec.Finish(p.eng, end, completed)
+	log.Printf("run finished (completed=%v): score %d, notes %d/%d, inputs %d", completed, rec.Result.Score, rec.Result.NotesHit, rec.Result.NotesHit+rec.Result.NotesMissed, len(rec.Inputs))
 	p.au.Close()
 	path := ""
 	if rec.Result.NotesHit+rec.Result.NotesMissed > 0 {

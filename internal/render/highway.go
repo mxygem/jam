@@ -27,13 +27,13 @@ type FrameState struct {
 	Chart      *chart.Chart
 	Track      *chart.Track
 	Eng        engine.Engine
-	Held       uint8          // guitar: frets held
-	PadHit     [7]float64     // drums: last pad hit time per chart lane
-	Flash      [7]float64     // last successful hit per chart lane (song time)
-	Whammy     float32        //
-	SPActive   bool           //
-	MissFlash  float64        // last miss/overstrum (song time)
-	ExpertPlus bool           //
+	Held       uint8      // guitar: frets held
+	PadHit     [7]float64 // drums: last pad hit time per chart lane
+	Flash      [7]float64 // last successful hit per chart lane (song time)
+	Whammy     float32    //
+	SPActive   bool       //
+	MissFlash  float64    // last miss/overstrum (song time)
+	ExpertPlus bool       //
 }
 
 func (h *Highway) far() float64 { return h.Cfg.FarRatio / (1 - h.Cfg.FarRatio) }

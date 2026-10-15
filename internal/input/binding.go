@@ -174,8 +174,10 @@ func (b *Bindings) Save(path string) error {
 }
 
 func key(name string) Binding { return Binding{Src: "keyboard", Device: -1, Kind: "key", Key: name} }
-func xbtn(bit int) Binding  { return Binding{Src: "xinput", Device: -1, Kind: "button", Code: bit} }
-func note(n int) Binding    { return Binding{Src: "midi", Device: -1, Kind: "note", Code: n, MinVel: 0.03} }
+func xbtn(bit int) Binding    { return Binding{Src: "xinput", Device: -1, Kind: "button", Code: bit} }
+func note(n int) Binding {
+	return Binding{Src: "midi", Device: -1, Kind: "note", Code: n, MinVel: 0.03}
+}
 
 // DefaultProfile returns the out-of-the-box bindings. Guitar defaults match
 // Guitar Hero style Xbox 360 guitars (which is how CRKD guitars present on

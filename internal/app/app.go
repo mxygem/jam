@@ -60,11 +60,11 @@ type App struct {
 	FFmpeg   string
 	NoAudio  bool // JAM_NOAUDIO=1: no sound device (headless tests)
 
-	libMu      sync.Mutex
-	library    []*chart.Song
-	scanning   bool
-	scanErr    string
-	scanCount  int
+	libMu     sync.Mutex
+	library   []*chart.Song
+	scanning  bool
+	scanErr   string
+	scanCount int
 
 	scene     Scene
 	Raw       []input.RawEvent
@@ -82,12 +82,23 @@ type App struct {
 // ErrQuit ends the game loop.
 var ErrQuit = fmt.Errorf("quit")
 
+// bestEffort ignores write errors (a detached console).
+type bestEffort struct{ w io.Writer }
+
+func (b bestEffort) Write(p []byte) (int, error) {
+	_, _ = b.w.Write(p)
+	return len(p), nil
+}
+
 // Run starts the game.
 func Run(opts Options) error {
 	if err := os.MkdirAll(config.Dir(), 0o755); err == nil {
 		if f, err := os.OpenFile(filepath.Join(config.Dir(), "jam.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644); err == nil {
 			defer f.Close()
-			log.SetOutput(io.MultiWriter(os.Stderr, f))
+			// The file goes first: when jam is started by double-click,
+			// Ebitengine detaches the console and every stderr write fails,
+			// which would stop io.MultiWriter before it reached the file.
+			log.SetOutput(io.MultiWriter(f, bestEffort{os.Stderr}))
 			log.SetFlags(log.Ltime | log.Lmicroseconds)
 		}
 	}
@@ -124,6 +135,9 @@ func Run(opts Options) error {
 	ebiten.SetWindowTitle("jam")
 	ebiten.SetWindowSize(1600, 900)
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
+	// Keep running when another window has focus: the song clock and the
+	// controller threads don't stop, so the game loop shouldn't either.
+	ebiten.SetRunnableOnUnfocused(true)
 	ebiten.SetVsyncEnabled(settings.VSync)
 	ebiten.SetTPS(ebiten.SyncWithFPS)
 	if settings.Fullscreen && !opts.Windowed {

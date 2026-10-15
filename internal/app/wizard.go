@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"image/color"
+	"log"
 	"math"
 	"strings"
 
@@ -29,11 +30,11 @@ type captured struct {
 }
 
 type axisTrack struct {
-	key      input.ControlKey
-	base     float32
-	extreme  float32
-	since    float64
-	tripped  bool
+	key     input.ControlKey
+	base    float32
+	extreme float32
+	since   float64
+	tripped bool
 }
 
 // Wizard maps a controller step by step and lets the player test it.
@@ -58,14 +59,14 @@ type Wizard struct {
 	lastHit   float64
 
 	// test screen
-	mapper  *input.Mapper
-	log     []string
-	logT    []float64
+	mapper             *input.Mapper
+	log                []string
+	logT               []float64
 	strumUp, strumDown float64
-	strums  int
-	padHit  map[action.Action]float64
-	padVel  map[action.Action]float32
-	lastRaw float64
+	strums             int
+	padHit             map[action.Action]float64
+	padVel             map[action.Action]float32
+	lastRaw            float64
 }
 
 // NewWizard starts the setup flow for an instrument family.
@@ -124,6 +125,7 @@ func (w *Wizard) Update(a *App) error {
 			if e.Src == input.SrcKeyboard {
 				w.devName = "Keyboard"
 			}
+			log.Printf("wizard %s: device %s (%s #%d)", w.fam, w.devName, e.Src, e.Device)
 			k := e.Key()
 			w.waitUp = &k
 			w.beginStep(a, 0)
@@ -184,6 +186,7 @@ func (w *Wizard) bindingFor(a *App, e input.RawEvent) input.Binding {
 func (w *Wizard) describe(a *App, b input.Binding) string { return b.Describe() }
 
 func (w *Wizard) finishStep(a *App, c captured) {
+	log.Printf("wizard %s: %s = %v (%.2fs)", w.fam, c.act.Title(), c.desc, clock.Now()-w.stepStart)
 	w.caps = append(w.caps, c)
 	w.doneAt = clock.Now()
 }
@@ -252,11 +255,13 @@ func (w *Wizard) updateBind(a *App, now float64, esc, back bool) {
 		return
 	}
 	if back {
+		log.Printf("wizard %s: %s skipped", w.fam, act.Title())
 		w.caps = append(w.caps, captured{act: act}) // skip
 		w.next(a)
 		return
 	}
 	if action.Optional(act) && now-w.stepStart > 12 {
+		log.Printf("wizard %s: %s timed out (optional)", w.fam, act.Title())
 		w.caps = append(w.caps, captured{act: act})
 		w.next(a)
 		return
@@ -379,6 +384,9 @@ func (w *Wizard) save(a *App) {
 	if err := a.SaveBindings(); err != nil {
 		a.Toast("Couldn't save bindings: " + err.Error())
 		return
+	}
+	for _, c := range w.caps {
+		log.Printf("wizard %s saved: %s = %v", w.fam, c.act.Title(), c.desc)
 	}
 	a.Toast("Saved " + string(w.fam) + " bindings for " + w.devName)
 	a.SetScene(NewMainMenu(a))

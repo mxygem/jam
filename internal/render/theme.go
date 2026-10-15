@@ -4,23 +4,23 @@ import "image/color"
 
 // Theme holds the palette. Custom themes/art can replace it later.
 type Theme struct {
-	Lanes      [6]color.RGBA // guitar: green, red, yellow, blue, orange, open
-	Drums      [6]color.RGBA // kick, red, yellow, blue, green(4)/orange(5), green(5)
-	StarPower  color.RGBA
-	Highway    color.RGBA
-	Rail       color.RGBA
-	RailSP     color.RGBA
-	Beat       color.RGBA
-	BGTop      color.RGBA
-	BGBottom   color.RGBA
-	Accent     color.RGBA
-	Text       color.RGBA
-	TextDim    color.RGBA
-	Panel      color.RGBA
-	Early      color.RGBA
-	Late       color.RGBA
-	Good       color.RGBA
-	Bad        color.RGBA
+	Lanes     [6]color.RGBA // guitar: green, red, yellow, blue, orange, open
+	Drums     [6]color.RGBA // kick, red, yellow, blue, green(4)/orange(5), green(5)
+	StarPower color.RGBA
+	Highway   color.RGBA
+	Rail      color.RGBA
+	RailSP    color.RGBA
+	Beat      color.RGBA
+	BGTop     color.RGBA
+	BGBottom  color.RGBA
+	Accent    color.RGBA
+	Text      color.RGBA
+	TextDim   color.RGBA
+	Panel     color.RGBA
+	Early     color.RGBA
+	Late      color.RGBA
+	Good      color.RGBA
+	Bad       color.RGBA
 }
 
 // DefaultTheme is a sleek take on the classic five-color highway.
