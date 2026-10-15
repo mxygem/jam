@@ -28,27 +28,45 @@ type Settings struct {
 	ChordLenience float64 `json:"chord_lenience"` // how long a strum waits for frets to finish landing
 	EarlyWindow   float64 `json:"early_window"`   // seconds before a note it may be hit
 	LateWindow    float64 `json:"late_window"`    // seconds after a note it may be hit
-	StrumLenience float64 `json:"strum_lenience"` // ignore a strum this soon after a fret-hit HOPO/tap
-	NoFail        bool    `json:"no_fail"`
-	ExpertPlus    bool    `json:"expert_plus"`    // drums: play 2x kick notes
-	ProDrums      bool    `json:"pro_drums"`      // drums: cymbals and toms must match
-	OverhitBreaks bool    `json:"overhit_breaks"` // drums: extra hits break the streak
-	BassMaxMult   int     `json:"bass_max_mult"`  // max streak multiplier for bass (4 GH style, 6 RB style)
+	DrumWindow    float64 `json:"drum_window"`    // drums: seconds each side (0: use Early/LateWindow)
+
+	// InfiniteFrontEnd lets the next note be hit any time after the
+	// previous note was due, however early (YARG's option of the same
+	// name). Hits still record their real offset.
+	InfiniteFrontEnd bool    `json:"infinite_front_end"`
+	StrumLenience    float64 `json:"strum_lenience"` // ignore a strum this soon after a fret-hit HOPO/tap
+	NoFail           bool    `json:"no_fail"`
+	ExpertPlus       bool    `json:"expert_plus"`    // drums: play 2x kick notes
+	ProDrums         bool    `json:"pro_drums"`      // drums: cymbals and toms must match
+	OverhitBreaks    bool    `json:"overhit_breaks"` // drums: extra hits break the streak
+	BassMaxMult      int     `json:"bass_max_mult"`  // max streak multiplier for bass (4 GH style, 6 RB style)
 }
 
-// DefaultSettings are tuned to feel like Clone Hero's defaults.
+// Windows returns the early and late hit windows for guitar or drums.
+func (s Settings) Windows(drums bool) (early, late float64) {
+	if drums && s.DrumWindow > 0 {
+		return s.DrumWindow, s.DrumWindow
+	}
+	return s.EarlyWindow, s.LateWindow
+}
+
+// DefaultSettings follow Gem's YARG engine preset: ±70 ms guitar window,
+// ±50 ms drums, 80 ms HOPO strum leniency, 50 ms chord leniency and an
+// infinite front end.
 func DefaultSettings() Settings {
 	return Settings{
-		Rules:         CurrentRules,
-		ChordLenience: 0.050,
-		EarlyWindow:   0.070,
-		LateWindow:    0.070,
-		StrumLenience: 0.060,
-		NoFail:        true,
-		ExpertPlus:    false,
-		ProDrums:      true,
-		OverhitBreaks: false,
-		BassMaxMult:   4,
+		Rules:            CurrentRules,
+		ChordLenience:    0.050,
+		EarlyWindow:      0.070,
+		LateWindow:       0.070,
+		DrumWindow:       0.050,
+		InfiniteFrontEnd: true,
+		StrumLenience:    0.080,
+		NoFail:           true,
+		ExpertPlus:       false,
+		ProDrums:         true,
+		OverhitBreaks:    false,
+		BassMaxMult:      4,
 	}
 }
 

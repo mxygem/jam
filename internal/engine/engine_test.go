@@ -364,9 +364,7 @@ func TestStrumAfterHammeredHOPO(t *testing.T) {
 	if st.NotesHit != 3 || st.Overstrums != 0 || st.Streak != 3 {
 		t.Errorf("current rules: hit=%d over=%d streak=%d, want 3/0/3", st.NotesHit, st.Overstrums, st.Streak)
 	}
-	legacy := DefaultSettings()
-	legacy.Rules, legacy.ChordLenience = 0, 0
-	if st := play(legacy); st.Overstrums != 1 {
+	if st := play(legacySettings()); st.Overstrums != 1 {
 		t.Errorf("rules 0 should still overstrum 70 ms after the hammer (recordings replay as judged), got %d", st.Overstrums)
 	}
 }
@@ -384,9 +382,51 @@ func TestChordLenience(t *testing.T) {
 	if st := play(DefaultSettings()); st.NotesHit != 1 || st.Overstrums != 0 {
 		t.Errorf("50 ms chord lenience: hit=%d over=%d", st.NotesHit, st.Overstrums)
 	}
-	legacy := DefaultSettings()
-	legacy.Rules, legacy.ChordLenience = 0, 0
-	if st := play(legacy); st.Overstrums != 1 {
+	if st := play(legacySettings()); st.Overstrums != 1 {
 		t.Errorf("legacy 25 ms lenience should overstrum, got %d", st.Overstrums)
 	}
+}
+
+func TestInfiniteFrontEnd(t *testing.T) {
+	c, tr, _ := load(t)
+	play := func(ife bool) *Guitar {
+		set := DefaultSettings()
+		set.InfiniteFrontEnd = ife
+		e := New(c, tr, set).(*Guitar)
+		var s script
+		s.fret(0.45, action.Green, true)
+		s.strum(0.5) // green at 0.5
+		s.fret(0.55, action.Green, false)
+		s.fret(0.70, action.Red, true)
+		s.strum(0.80) // red is due at 1.0: 200 ms early
+		run(e, sortScript(s), 0.9)
+		return e
+	}
+	e := play(true)
+	if e.Status(1) != NoteHit || e.Stats().Overstrums != 0 {
+		t.Fatalf("infinite front end: red should hit 200 ms early: %+v", e.Judgments())
+	}
+	if j := e.Judgments()[len(e.Judgments())-1]; math.Abs(j.Offset+0.2) > 1e-9 {
+		t.Errorf("early hit should record its real offset, got %v", j.Offset)
+	}
+	e = play(false)
+	if e.Status(1) == NoteHit || e.Stats().Overstrums != 1 {
+		t.Fatalf("normal front end: 200 ms early is an overstrum: %+v", e.Judgments())
+	}
+	// Only the next note opens early: before green is played, red can't be.
+	set := DefaultSettings()
+	g := New(c, tr, set).(*Guitar)
+	var s script
+	s.fret(0.2, action.Red, true)
+	s.strum(0.25)
+	run(g, sortScript(s), 0.3)
+	if g.Status(1) == NoteHit {
+		t.Fatal("red hit before green was due")
+	}
+}
+
+// legacySettings are the defaults as recorded by runs before rules version 1
+// (fields added since then are zero in those recordings).
+func legacySettings() Settings {
+	return Settings{EarlyWindow: 0.07, LateWindow: 0.07, StrumLenience: 0.06, NoFail: true, ProDrums: true, BassMaxMult: 4}
 }

@@ -253,6 +253,17 @@ func (g *Guitar) strum(t float64) {
 	g.overstrum(t)
 }
 
+// front is the earliest time note i can be hit. With an infinite front end
+// the next unplayed note opens as soon as the previous note was due.
+func (g *Guitar) front(i int) float64 {
+	notes := g.track.Notes
+	f := notes[i].Time - g.set.EarlyWindow
+	if g.set.InfiniteFrontEnd && i == g.next && i > 0 && notes[i-1].Time < f {
+		f = notes[i-1].Time
+	}
+	return f
+}
+
 // candidate returns the first pending note whose window contains t.
 func (g *Guitar) candidate(t float64) int {
 	notes := g.track.Notes
@@ -260,7 +271,7 @@ func (g *Guitar) candidate(t float64) int {
 		if g.status[i] != Pending {
 			continue
 		}
-		if notes[i].Time-g.set.EarlyWindow > t {
+		if g.front(i) > t {
 			break
 		}
 		if notes[i].Time+g.set.LateWindow >= t {
@@ -278,7 +289,7 @@ func (g *Guitar) findTarget(t float64) int {
 		if g.status[i] != Pending {
 			continue
 		}
-		if notes[i].Time-g.set.EarlyWindow > t {
+		if g.front(i) > t {
 			break
 		}
 		if notes[i].Time+g.set.LateWindow < t {

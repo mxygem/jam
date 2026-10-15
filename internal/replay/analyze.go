@@ -94,8 +94,8 @@ const OnTimeMs = 15.0
 func Analyze(rec *Recording, c *chart.Chart, t *chart.Track) *Analysis {
 	a := &Analysis{Rec: rec, Drums: t.Key.Inst.IsDrums(), BucketMs: 5}
 	notes := t.Notes
-	early := rec.Settings.EarlyWindow * 1000
-	late := rec.Settings.LateWindow * 1000
+	early, late := rec.Settings.Windows(a.Drums)
+	early, late = early*1000, late*1000
 	if early <= 0 {
 		early = 70
 	}
@@ -287,8 +287,7 @@ func (a *Analysis) stats() {
 func (a *Analysis) missReason(rec *Recording, t *chart.Track, j engine.Judgment) string {
 	n := &t.Notes[j.Note]
 	window := 0.25
-	early := rec.Settings.EarlyWindow
-	late := rec.Settings.LateWindow
+	early, late := rec.Settings.Windows(a.Drums)
 	if a.Drums {
 		bestDt := math.Inf(1)
 		wrongType := false

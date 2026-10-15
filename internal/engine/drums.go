@@ -21,6 +21,7 @@ type Drums struct {
 
 func newDrums(c *chart.Chart, t *chart.Track, s Settings) *Drums {
 	d := &Drums{mode: t.DrumMode}
+	s.EarlyWindow, s.LateWindow = s.Windows(true)
 	d.init(c, t, s)
 	n := len(t.Notes)
 	d.lanes = make([]uint8, n)

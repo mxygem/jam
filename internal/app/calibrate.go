@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"sort"
 
@@ -157,6 +158,7 @@ func (c *Calibration) finish(a *App) {
 				a.Settings.VideoOffsetMs = math.Round(c.result)
 			}
 			_ = a.Settings.Save()
+			log.Printf("calibration: %s offset set to %.0f ms (spread %.0f ms, %d taps)", map[calMode]string{calAudio: "audio", calVideo: "video"}[c.which], math.Round(c.result), c.spread, len(c.offsets))
 			a.Toast("Calibration saved")
 			c.mode = calMenu
 		}})

@@ -119,3 +119,7 @@ const (
 	keyBackspace = ebiten.KeyBackspace
 	keyEnter     = ebiten.KeyEnter
 )
+
+func keyDown(k ebiten.Key) input.RawEvent {
+	return input.RawEvent{Src: input.SrcKeyboard, Kind: input.KindKey, Code: int(k), Value: 1, Down: true}
+}

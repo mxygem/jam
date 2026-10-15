@@ -51,6 +51,21 @@ func NewSettings(a *App) *Settings {
 			v := clampf(st.Engine.EarlyWindow+float64(d)*0.005, 0.03, 0.15)
 			st.Engine.EarlyWindow, st.Engine.LateWindow = v, v
 		}},
+		{Label: "Drum hit window", Hint: "Early and late window for drum notes", Value: func() string {
+			e, _ := st.Engine.Windows(true)
+			return fmt.Sprintf("±%.0f ms", e*1000)
+		}, Adjust: func(d int) {
+			e, _ := st.Engine.Windows(true)
+			st.Engine.DrumWindow = clampf(e+float64(d)*0.005, 0.03, 0.15)
+		}},
+		{Label: "Infinite front end", Hint: "Strum the next note as early as you like once the previous one has passed",
+			Value: func() string { return onOff(st.Engine.InfiniteFrontEnd) }, Adjust: func(int) { st.Engine.InfiniteFrontEnd = !st.Engine.InfiniteFrontEnd }},
+		{Label: "HOPO strum leniency", Hint: "A strum this soon after hammering a HOPO is ignored (it also lasts to the end of the note's window)",
+			Value:  func() string { return fmt.Sprintf("%.0f ms", st.Engine.StrumLenience*1000) },
+			Adjust: func(d int) { st.Engine.StrumLenience = clampf(st.Engine.StrumLenience+float64(d)*0.005, 0, 0.15) }},
+		{Label: "Chord leniency", Hint: "How long a strum waits for the frets to finish landing",
+			Value:  func() string { return fmt.Sprintf("%.0f ms", st.Engine.ChordLenience*1000) },
+			Adjust: func(d int) { st.Engine.ChordLenience = clampf(st.Engine.ChordLenience+float64(d)*0.005, 0.005, 0.12) }},
 		{Label: "No fail", Value: func() string { return onOff(st.Engine.NoFail) }, Adjust: func(int) { st.Engine.NoFail = !st.Engine.NoFail }},
 		{Label: "Show hit timing", Hint: "Show +/- ms under the strike line on every hit", Value: func() string { return onOff(st.ShowTiming) }, Adjust: func(int) { st.ShowTiming = !st.ShowTiming }},
 		{Label: "Mute stem on miss", Value: func() string { return onOff(st.MuteOnMiss) }, Adjust: func(int) { st.MuteOnMiss = !st.MuteOnMiss }},

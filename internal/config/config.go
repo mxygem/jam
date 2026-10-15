@@ -84,6 +84,11 @@ func Load() (*Settings, bool) {
 	if s.Engine.EarlyWindow == 0 {
 		s.Engine = engine.DefaultSettings()
 	}
+	// Settings files written before the HOPO leniency default moved to
+	// 80 ms (Gem's YARG preset) still carry the old default.
+	if s.Engine.StrumLenience == 0.06 {
+		s.Engine.StrumLenience = engine.DefaultSettings().StrumLenience
+	}
 	// The ruleset version isn't a preference: new runs always use the
 	// current rules (recordings keep the version they were played with).
 	s.Engine.Rules = engine.CurrentRules
