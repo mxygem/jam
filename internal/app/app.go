@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -77,6 +78,8 @@ type App struct {
 	shotTaken bool
 	wantShot  bool
 	userShot  bool
+	panics    int
+	lastPanic float64
 }
 
 // ErrQuit ends the game loop.
@@ -100,6 +103,12 @@ func Run(opts Options) error {
 			// which would stop io.MultiWriter before it reached the file.
 			log.SetOutput(io.MultiWriter(f, bestEffort{os.Stderr}))
 			log.SetFlags(log.Ltime | log.Lmicroseconds)
+		}
+		// Fatal errors that can't be recovered (and any panic that escapes
+		// the scene guard) still leave a trace even without a console.
+		if cf, err := os.OpenFile(filepath.Join(config.Dir(), "crash.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+			_ = debug.SetCrashOutput(cf, debug.CrashOptions{})
+			cf.Close()
 		}
 	}
 	log.Printf("jam %s starting", Version)
@@ -234,8 +243,34 @@ func (a *App) SaveBindings() error {
 	return a.Bindings.Save(config.BindingsPath())
 }
 
+// guard turns a panic in a scene into a logged error and a trip back to the
+// main menu, so one bug doesn't take the whole game down. Repeated panics
+// within a few seconds end the game (the menu itself must be broken).
+func (a *App) guard(where string) {
+	r := recover()
+	if r == nil {
+		return
+	}
+	now := clock.Now()
+	log.Printf("PANIC in %s (%T): %v\n%s", where, a.scene, r, debug.Stack())
+	if now-a.lastPanic < 3 {
+		a.panics++
+	} else {
+		a.panics = 1
+	}
+	a.lastPanic = now
+	if a.panics >= 3 {
+		log.Printf("too many errors, quitting")
+		a.quit = true
+		return
+	}
+	a.scene = NewMainMenu(a)
+	a.Toast(fmt.Sprintf("Something went wrong (%v). Details are in jam.log", r))
+}
+
 // Update implements ebiten.Game.
-func (a *App) Update() error {
+func (a *App) Update() (err error) {
+	defer a.guard("update")
 	if a.quit {
 		return ErrQuit
 	}
@@ -313,6 +348,7 @@ func (a *App) saveUserShot(screen *ebiten.Image) {
 
 // Draw implements ebiten.Game.
 func (a *App) Draw(screen *ebiten.Image) {
+	defer a.guard("draw")
 	a.scene.Draw(screen, a)
 	if a.wantShot {
 		defer a.TakeScreenshot(screen)

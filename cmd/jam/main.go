@@ -64,6 +64,7 @@ func main() {
 func analyze(args []string) int {
 	fs := flag.NewFlagSet("analyze", flag.ExitOnError)
 	window := fs.Float64("window", 0, "re-simulate with this hit window in ms (each side)")
+	chartDir := fs.String("chart", "", "song folder to analyze against (default: the folder the run was played from)")
 	fs.Parse(args)
 	if fs.NArg() == 0 {
 		files, _ := replay.List(config.RunsDir())
@@ -75,6 +76,7 @@ func analyze(args []string) int {
 		fs = flag.NewFlagSet("analyze", flag.ExitOnError)
 		args = append(args, files[0])
 		fs.Float64Var(window, "window", *window, "")
+		fs.StringVar(chartDir, "chart", *chartDir, "")
 		fs.Parse(args)
 	}
 	rec, err := replay.Load(fs.Arg(0))
@@ -82,9 +84,13 @@ func analyze(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	song, err := chart.LoadSongFolder(rec.Song.Dir)
+	dir := rec.Song.Dir
+	if *chartDir != "" {
+		dir = *chartDir
+	}
+	song, err := chart.LoadSongFolder(dir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "chart folder %s unavailable (%v); showing the summary only\n", rec.Song.Dir, err)
+		fmt.Fprintf(os.Stderr, "chart folder %s unavailable (%v); showing the summary only (use --chart <folder>)\n", dir, err)
 		fmt.Printf("%+v\n", rec.Result)
 		return 0
 	}

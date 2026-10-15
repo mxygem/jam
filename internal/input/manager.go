@@ -112,6 +112,11 @@ func (m *Manager) Poll(dst []RawEvent) []RawEvent {
 
 	evs := dst[start:]
 	sort.SliceStable(evs, func(i, j int) bool { return evs[i].Time < evs[j].Time })
+	m.track(evs)
+	return dst
+}
+
+func (m *Manager) track(evs []RawEvent) {
 	for _, e := range evs {
 		if e.Kind == KindAxis || e.Kind == KindCC {
 			m.state[e.Key()] = e.Value
@@ -121,13 +126,16 @@ func (m *Manager) Poll(dst []RawEvent) []RawEvent {
 			delete(m.state, e.Key())
 		}
 	}
-	return dst
 }
+
+// Inject records events as if a device had sent them (tests and tools).
+func (m *Manager) Inject(evs []RawEvent) { m.track(evs) }
 
 func (m *Manager) skipPad(name string) bool {
 	// On Windows Ebitengine also reports XInput devices; the dedicated poller
 	// already handles them with better timing.
-	return m.xi != nil && runtime.GOOS == "windows" && strings.HasPrefix(name, "XInput")
+	// Its name varies ("XInput Gamepad", "Unknown XInput Device"...).
+	return m.xi != nil && runtime.GOOS == "windows" && strings.Contains(strings.ToLower(name), "xinput")
 }
 
 func (m *Manager) pollPads(dst []RawEvent, now float64) []RawEvent {
@@ -236,7 +244,7 @@ func (m *Manager) AxisSnapshot() map[ControlKey]float32 {
 		}
 	}
 	for k, v := range m.state {
-		if k.Kind == KindCC {
+		if _, ok := out[k]; !ok && (k.Kind == KindCC || k.Kind == KindAxis) {
 			out[k] = v
 		}
 	}

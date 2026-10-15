@@ -85,7 +85,7 @@ func Text(dst *ebiten.Image, s string, f Font, size, x, y float64, c color.Color
 	case Right:
 		op.PrimaryAlign = text.AlignEnd
 	}
-	text.Draw(dst, s, Face(f, size), op)
+	text.Draw(dst, s, faceFor(s, f, size), op)
 }
 
 // TextShadow draws text with a soft drop shadow for legibility over art.
@@ -96,5 +96,5 @@ func TextShadow(dst *ebiten.Image, s string, f Font, size, x, y float64, c color
 
 // Measure returns the advance width and line height of s.
 func Measure(s string, f Font, size float64) (float64, float64) {
-	return text.Measure(s, Face(f, size), 0)
+	return text.Measure(s, faceFor(s, f, size), 0)
 }

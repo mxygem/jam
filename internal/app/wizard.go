@@ -202,15 +202,17 @@ func (w *Wizard) updateBind(a *App, now float64, esc, back bool) {
 	}
 	// Release gating: wait until the previous control is let go.
 	if w.waitUp != nil {
-		if v, ok := a.Input.Value(*w.waitUp); !ok || v < 0.5 {
-			w.waitUp = nil
+		up := *w.waitUp
+		released := false
+		if v, ok := a.Input.Value(up); !ok || v < 0.5 {
+			released = true
 		}
 		for _, e := range a.Raw {
-			if e.Key() == *w.waitUp && !e.Down && e.Kind != input.KindAxis {
-				w.waitUp = nil
+			if e.Key() == up && !e.Down && e.Kind != input.KindAxis {
+				released = true
 			}
 		}
-		if w.waitUp != nil && !w.isDrums() {
+		if !released && !w.isDrums() {
 			return
 		}
 		w.waitUp = nil
