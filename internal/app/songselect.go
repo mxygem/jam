@@ -329,6 +329,7 @@ func (s *SongSelect) Update(a *App) error {
 	}
 	s.updateMouse(a)
 	s.prefetchArt(a)
+	a.Preview.Select(s.current())
 	if song := s.current(); song != nil {
 		s.back.set(a.Art.get(song.CoverArt))
 	} else {
@@ -817,7 +818,12 @@ func (s *SongSelect) drawInfo(dst *ebiten.Image, a *App, song *chart.Song, art *
 	if in != nil && in.Lyrics {
 		facts = append(facts, "lyrics")
 	}
-	render.Text(dst, truncateW(strings.Join(facts, "   ·   "), render.Cond, 24, infoW), render.Cond, 24, infoX, y, th.TextDim, render.Left)
+	factsW := infoW
+	if lv := a.Preview.meter(song, 4); lv != nil {
+		drawMeter(dst, infoX+infoW-30, y+2, 22, lv)
+		factsW -= 50
+	}
+	render.Text(dst, truncateW(strings.Join(facts, "   ·   "), render.Cond, 24, factsW), render.Cond, 24, infoX, y, th.TextDim, render.Left)
 	y += 46
 
 	// parts with difficulty and best scores

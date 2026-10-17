@@ -11,7 +11,9 @@ Working now:
 - Guitar, bass, rhythm, co-op and 5-lane keys: strums, HOPOs (natural and forced), taps, open notes, chords with anchoring, sustains (extended and disjoint), star power phrases with whammy charge and tilt/button activation, solos.
 - Drums: 4-lane, pro (cymbals vs toms) and 5-lane, Expert+ double kick, fills as star power activation, accents and ghosts shown.
 - Charts: `.chart` and `notes.mid` (including Phase Shift SysEx taps/opens, `[ENHANCED_OPENS]`, tom markers, chart dynamics), `song.ini` overrides (`delay`, `hopo_frequency`, `eighthnote_hopo`, `sustain_cutoff_threshold`, `multiplier_note`, `pro_drums`, `five_lane_drums`).
-- Audio: every stem plays in sync; your instrument's stem drops out when you miss. `.ogg`, `.mp3`, `.wav` play natively; `.opus`, `.flac`, `.m4a`, `.aiff` go through ffmpeg (`winget install ffmpeg`).
+- Audio: every stem plays in sync; your instrument's stem drops out when you miss. Overstrums make a noise by default; Settings > Audio picks which mistakes do (none, overstrums, extra hits, every miss) and how loud.
+- Song previews: the song list plays the selected song from `song.ini`'s `preview_start_time` (to `preview_end_time` if set, otherwise 30 s), from a `preview` audio file if the folder has one, or else from the first chorus or a spot partway in. Settings > Audio sets their volume or turns them off.
+- Audio formats: `.ogg`, `.mp3`, `.wav` play natively; `.opus`, `.flac`, `.m4a`, `.aiff` go through ffmpeg (`winget install ffmpeg`).
 - Input: XInput guitars are polled on their own ~1 kHz thread with high resolution timestamps (CRKD guitars present as Guitar Hero style Xbox 360 guitars and work with the defaults). MIDI drum kits are the default drum input, with General MIDI note defaults. Keyboard and other gamepads work too.
 - Setup wizard per instrument: detects the device, then each fret, strum, Star Power, tilt, whammy, Start and Select (or each pad, collecting every note a pad sends, like head and rim). Live test screen with a raw event log, then save.
 - Latency calibration: audio (tap to a click track) and video (tap to a visual metronome).

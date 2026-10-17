@@ -22,6 +22,9 @@ type Settings struct {
 	Engine         engine.Settings      `json:"engine"`
 	Highway        render.HighwayConfig `json:"highway"`
 	Volume         float64              `json:"volume"`
+	PreviewVolume  float64              `json:"preview_volume"` // song list previews, relative to Volume; 0 is off
+	ErrorSounds    string               `json:"error_sounds"`   // which mistakes make a noise: off, overstrum, extra, all
+	ErrorVolume    float64              `json:"error_volume"`   // relative to Volume
 	ShowTiming     bool                 `json:"show_timing"`
 	MuteOnMiss     bool                 `json:"mute_on_miss"`
 	Fullscreen     bool                 `json:"fullscreen"`
@@ -86,6 +89,9 @@ func Default() *Settings {
 		Engine:          engine.DefaultSettings(),
 		Highway:         render.DefaultHighway(),
 		Volume:          0.9,
+		PreviewVolume:   0.8,
+		ErrorSounds:     "overstrum",
+		ErrorVolume:     0.5,
 		ShowTiming:      true,
 		MuteOnMiss:      true,
 		VSync:           true,

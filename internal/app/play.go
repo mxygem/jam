@@ -40,25 +40,26 @@ type Play struct {
 	hs    render.HUDState
 	drums bool
 
-	startClock float64
-	started    bool
-	biasSet    bool
-	biasBuf    []float64
-	bias       float64
-	audioOff   float64
-	videoOff   float64
-	lastEvT    float64
-	jIdx       int
-	mute       []string
-	lastNote   float64
-	length     float64 // song length shown on the progress bar
-	finished   bool
-	failed     bool
-	section    int
-	spReady    bool
-	milestone  int
-	solosDone  map[int]bool
-	prevClock  float64
+	startClock   float64
+	started      bool
+	biasSet      bool
+	biasBuf      []float64
+	bias         float64
+	audioOff     float64
+	videoOff     float64
+	lastEvT      float64
+	jIdx         int
+	mute         []string
+	lastNote     float64
+	length       float64 // song length shown on the progress bar
+	finished     bool
+	failed       bool
+	section      int
+	spReady      bool
+	milestone    int
+	solosDone    map[int]bool
+	prevClock    float64
+	lastErrSound float64 // song time of the last error sound
 
 	paused     bool
 	pauseClock float64
@@ -110,6 +111,7 @@ func NewPlay(a *App, s *chart.Song, c *chart.Chart, t *chart.Track, au *playback
 	p.startClock = now + lead
 	p.prevClock = now
 	p.lastEvT = math.Inf(-1)
+	p.lastErrSound = math.Inf(-1)
 	if a.Opts.Autoplay {
 		p.bot = botEvents(t, set.Engine.ExpertPlus)
 		p.rec.Rec.Device = "autoplay"
@@ -325,6 +327,10 @@ func (p *Play) processJudgments(a *App) {
 				p.post(fmt.Sprintf("%d NOTE STREAK!", m), th.Text, rt)
 			}
 		case engine.Miss, engine.Overstrum, engine.Overhit:
+			if errorSound(a.Settings.ErrorSounds, j.Result) && j.Time-p.lastErrSound > 0.06 {
+				p.lastErrSound = j.Time
+				a.SFX.Miss(a.Settings.ErrorVolume * a.Settings.Volume)
+			}
 			if j.Result == engine.Overhit && !a.Settings.Engine.OverhitBreaks {
 				continue
 			}
@@ -333,9 +339,6 @@ func (p *Play) processJudgments(a *App) {
 				for _, s := range p.mute {
 					p.au.SetTarget(s, 0)
 				}
-			}
-			if j.Result == engine.Overstrum {
-				a.SFX.Miss(0.45 * a.Settings.Volume)
 			}
 			if j.Streak == 0 {
 				p.milestone = 0
@@ -602,4 +605,18 @@ func quitLabel(a *App) string {
 		return "Quit the playlist"
 	}
 	return "Quit to song list"
+}
+
+// errorSound reports whether a judgment makes the error noise in a mode
+// (see errorSoundModes).
+func errorSound(mode string, r engine.Result) bool {
+	switch errorSoundModes[errorSoundsIndex(mode)].id {
+	case "overstrum":
+		return r == engine.Overstrum
+	case "extra":
+		return r == engine.Overstrum || r == engine.Overhit
+	case "all":
+		return r == engine.Overstrum || r == engine.Overhit || r == engine.Miss
+	}
+	return false
 }

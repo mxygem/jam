@@ -67,7 +67,7 @@ func (h *harness) frame(evs ...input.RawEvent) {
 				h.t.Fatalf("panic in %T.Update: %v", a.scene, r)
 			}
 		}()
-		if err := a.scene.Update(a); err != nil {
+		if err := a.step(); err != nil {
 			h.t.Fatal(err)
 		}
 	}()

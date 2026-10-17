@@ -66,11 +66,12 @@ type App struct {
 	FFmpeg   string
 	NoAudio  bool // JAM_NOAUDIO=1: no sound device (headless tests)
 
-	Index  *library.Index
-	Scores *replay.Scores
-	Art    *artCache
-	Queue  *playlist.Playlist // the playlist being built or played
-	Run    *playRun           // playing through a playlist
+	Index   *library.Index
+	Scores  *replay.Scores
+	Art     *artCache
+	Queue   *playlist.Playlist // the playlist being built or played
+	Preview *previewer         // song list audio previews
+	Run     *playRun           // playing through a playlist
 
 	BG *backgrounds
 
@@ -175,6 +176,7 @@ func Run(opts Options) error {
 	a.Queue = &playlist.Playlist{}
 	a.BG = newBackgrounds(CustomsDir())
 	a.BG.Apply(settings.Background, true)
+	a.Preview = newPreviewer()
 	if _, err := demo.Write(config.SongsDir()); err != nil {
 		log.Printf("demo song: %v", err)
 	}
@@ -372,7 +374,19 @@ func (a *App) Update() (err error) {
 		a.Settings.Fullscreen = fs
 		_ = a.Settings.Save()
 	}
-	return a.scene.Update(a)
+	return a.step()
+}
+
+// step runs the scene for one frame, after input has been read.
+func (a *App) step() error {
+	a.Preview.Update(a)
+	err := a.scene.Update(a)
+	// Previews belong to the song list: any other screen fades them out,
+	// however it was reached.
+	if _, ok := a.scene.(*SongSelect); !ok {
+		a.Preview.Stop()
+	}
+	return err
 }
 
 // Pressed reports whether a menu action was pressed this frame.

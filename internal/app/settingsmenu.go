@@ -203,12 +203,26 @@ func newSettingsMenu(a *App, inSong bool) *settingsMenu {
 			Adjust: func(d int) { st.Volume = clampf(st.Volume+float64(d)*0.01, 0, 1) }},
 		{Label: "Mute stem on miss", Hint: "Silence your part's audio while you're missing notes",
 			Value: func() string { return onOff(st.MuteOnMiss) }, Adjust: func(int) { st.MuteOnMiss = !st.MuteOnMiss }},
+		{Label: "Error sounds", Hint: "Which mistakes make a noise",
+			Value:  func() string { return errorSoundsLabel(st.ErrorSounds) },
+			Adjust: func(d int) { st.ErrorSounds = cycleErrorSounds(st.ErrorSounds, d) }},
+		{Label: "Error sound volume", Hint: "Relative to Volume", Range: true,
+			Value:  func() string { return fmt.Sprintf("%.0f%%", st.ErrorVolume*100) },
+			Adjust: func(d int) { st.ErrorVolume = clampf(st.ErrorVolume+float64(d)*0.01, 0, 1) }},
 		{Label: "Audio offset", Hint: "How late you hear the music. Calibrate latency measures it", Range: true,
 			Value: func() string { return fmt.Sprintf("%.0f ms", st.AudioOffsetMs) }, Adjust: func(d int) { st.AudioOffsetMs += float64(d) }},
 		{Label: "Video offset", Hint: "How late the screen shows the notes. Calibrate latency measures it", Range: true,
 			Value: func() string { return fmt.Sprintf("%.0f ms", st.VideoOffsetMs) }, Adjust: func(d int) { st.VideoOffsetMs += float64(d) }},
 	}
 	if !inSong {
+		audioItems = append(audioItems[:1], append([]Item{{Label: "Song previews", Hint: "Volume of the music that plays in the song list, relative to Volume", Range: true,
+			Value: func() string {
+				if st.PreviewVolume <= 0 {
+					return "Off"
+				}
+				return fmt.Sprintf("%.0f%%", st.PreviewVolume*100)
+			},
+			Adjust: func(d int) { st.PreviewVolume = clampf(math.Round((st.PreviewVolume+float64(d)*0.01)*100)/100, 0, 1) }}}, audioItems[1:]...)...)
 		audioItems = append(audioItems, Item{Label: "Calibrate latency", Hint: "Measure audio and video delay so hits line up",
 			Activate: func() { a.SetScene(NewCalibration(a)) }})
 	}
@@ -240,7 +254,7 @@ func newSettingsMenu(a *App, inSong bool) *settingsMenu {
 		{pageGameplay, "Gameplay", "Hit windows, leniency, no fail, drums", gameplay},
 		{pageHighway, "Highway and visuals", "Note speed, highway shape, bounce, effects, lyrics", highway},
 		{pageBackground, "Background", "Pick a background image and how dark it is", background},
-		{pageAudio, "Audio and timing", "Volume, offsets, latency calibration", audioItems},
+		{pageAudio, "Audio and timing", "Volume, previews, error sounds, offsets, latency calibration", audioItems},
 	}
 	if !inSong {
 		m.pages = append(m.pages, settingsPage{pageControls, "Controls", "Set up a guitar or drum kit", controls})
@@ -369,4 +383,28 @@ func (m *settingsMenu) drawTyping(dst *ebiten.Image) {
 	render.Text(dst, "Add a song folder", render.UIBold, 36, 300, 430, th.Text, render.Left)
 	m.typing.Draw(dst, 300, 500, 1320)
 	render.Text(dst, "Enter to add, Esc to cancel", render.Cond, 24, 300, 580, th.TextDim, render.Left)
+}
+
+// Error sound modes: which judgments make the miss noise.
+var errorSoundModes = []struct{ id, label string }{
+	{"off", "Off"},
+	{"overstrum", "Overstrums"},
+	{"extra", "Overstrums and extra hits"},
+	{"all", "Every miss"},
+}
+
+func errorSoundsIndex(mode string) int {
+	for i, m := range errorSoundModes {
+		if m.id == mode {
+			return i
+		}
+	}
+	return 1 // unknown: the default
+}
+
+func errorSoundsLabel(mode string) string { return errorSoundModes[errorSoundsIndex(mode)].label }
+
+func cycleErrorSounds(mode string, d int) string {
+	n := len(errorSoundModes)
+	return errorSoundModes[(errorSoundsIndex(mode)+d%n+n)%n].id
 }
