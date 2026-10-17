@@ -38,6 +38,13 @@ type Info struct {
 	Sections  int    `json:"sections"`
 	Format    string `json:"format"` // chart or mid
 	Err       string `json:"err,omitempty"`
+
+	// Content hashes for finding duplicate songs (see hash.go). They are
+	// filled in by the background indexer, not by Analyze, so loading a song
+	// to play never waits on reading its audio.
+	ChartSHA256 string              `json:"chart_sha256,omitempty"` // chart file
+	Audio       map[string]*FileSum `json:"audio,omitempty"`        // stem name -> audio file
+	SongSHA256  string              `json:"song_sha256,omitempty"`  // chart + every stem
 }
 
 // Part returns the part for an instrument, or nil.
@@ -166,22 +173,38 @@ func fresh(in *Info, s *chart.Song) bool {
 	return st.Size() == in.ChartSize && st.ModTime().UnixNano() == in.ChartMod
 }
 
+// job is one song for the indexer: analyzed and hashed when full, or only
+// hashed again (full false) when its chart is unchanged but its hashes are
+// missing or out of date, e.g. a cache from before hashes existed.
+type job struct {
+	s    *chart.Song
+	prev *Info // earlier entry, to reuse hashes of unchanged files
+	full bool
+}
+
 // Update indexes songs whose charts are new or changed, in the background,
 // and saves the cache when done. Songs no longer in the library are dropped.
+// Content hashes are brought up to date too, reading only files that are new
+// or changed.
 func (x *Index) Update(songs []*chart.Song) {
 	x.mu.Lock()
 	if x.running {
 		x.mu.Unlock()
 		return
 	}
-	var todo []*chart.Song
+	var todo []job
 	keep := map[string]*Info{}
 	for _, s := range songs {
 		k := key(s.Dir)
-		if in := x.infos[k]; fresh(in, s) {
+		in := x.infos[k]
+		switch {
+		case !fresh(in, s):
+			todo = append(todo, job{s: s, prev: in, full: true})
+		case !in.sumsFresh(s):
 			keep[k] = in
-		} else {
-			todo = append(todo, s)
+			todo = append(todo, job{s: s, prev: in})
+		default:
+			keep[k] = in
 		}
 	}
 	x.infos = keep
@@ -193,17 +216,31 @@ func (x *Index) Update(songs []*chart.Song) {
 	}
 	go func() {
 		start := time.Now()
-		jobs := make(chan *chart.Song)
+		analyzed := 0
+		for _, j := range todo {
+			if j.full {
+				analyzed++
+			}
+		}
+		jobs := make(chan job)
 		var wg sync.WaitGroup
 		workers := max(1, min(4, runtime.NumCPU()-1))
 		for w := 0; w < workers; w++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				for s := range jobs {
-					in := analyzeSafe(s)
+				for j := range jobs {
+					var in *Info
+					if j.full {
+						in = analyzeSafe(j.s)
+					} else {
+						// Copy, because the UI may be reading the old entry.
+						cp := *j.prev
+						in = &cp
+					}
+					sumSafe(j.s, in, j.prev)
 					x.mu.Lock()
-					x.infos[key(s.Dir)] = in
+					x.infos[key(j.s.Dir)] = in
 					x.done++
 					if x.done%25 == 0 {
 						x.gen++
@@ -212,8 +249,8 @@ func (x *Index) Update(songs []*chart.Song) {
 				}
 			}()
 		}
-		for _, s := range todo {
-			jobs <- s
+		for _, j := range todo {
+			jobs <- j
 		}
 		close(jobs)
 		wg.Wait()
@@ -221,7 +258,7 @@ func (x *Index) Update(songs []*chart.Song) {
 		x.running = false
 		x.gen++
 		x.mu.Unlock()
-		log.Printf("library index: %d charts analyzed in %.1fs", len(todo), time.Since(start).Seconds())
+		log.Printf("library index: %d charts analyzed, %d hashed in %.1fs", analyzed, len(todo), time.Since(start).Seconds())
 		if err := x.Save(); err != nil {
 			log.Printf("library index: save: %v", err)
 		}
