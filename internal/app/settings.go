@@ -9,14 +9,15 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 
+	"github.com/mxygem/jam/internal/clock"
 	"github.com/mxygem/jam/internal/config"
 	"github.com/mxygem/jam/internal/render"
 )
 
 // Settings edits preferences, grouped into pages.
 type Settings struct {
-	menu    *settingsMenu
-	preview *render.Highway
+	menu *settingsMenu
+	look *lookPreview // highway and appearance pages: a song playing in miniature
 }
 
 func onOff(b bool) string {
@@ -31,7 +32,7 @@ func NewSettings(a *App) *Settings { return NewSettingsAt(a, "") }
 
 // NewSettingsAt opens the settings screen on a page (see page* constants).
 func NewSettingsAt(a *App, page string) *Settings {
-	s := &Settings{preview: &render.Highway{}}
+	s := &Settings{}
 	s.menu = newSettingsMenu(a, false)
 	s.menu.cats.Visible = 10
 	if page != "" {
@@ -68,6 +69,16 @@ func (s *Settings) Update(a *App) error {
 	if s.menu.update(a) {
 		s.save(a)
 		a.SetScene(NewMainMenu(a))
+		return nil
+	}
+	switch s.menu.pageID() {
+	case pageHighway, pageLooks:
+		if s.look == nil || s.look.drums != s.menu.previewDrums {
+			s.look = newLookPreview(s.menu.previewDrums)
+		}
+		s.look.update(a, clock.Now())
+	default:
+		s.look = nil
 	}
 	return nil
 }
@@ -75,14 +86,17 @@ func (s *Settings) Update(a *App) error {
 func (s *Settings) Draw(dst *ebiten.Image, a *App) {
 	MenuBackground(dst)
 	sub := "Changes apply to the next song"
-	if s.menu.page >= 0 {
+	switch {
+	case s.menu.picker != nil:
+		sub = "Appearance · " + s.menu.picker.slot.Group
+	case s.menu.page >= 0:
 		sub = "Settings"
 	}
 	Header(dst, s.menu.title(), sub)
 	s.menu.draw(dst, 120, 250, 760, 66)
 	drawWrapped(dst, s.menu.hint(), render.UI, 26, 120, 250+float64(s.menu.rows())*66+24, 780, th.TextDim)
 	switch s.menu.pageID() {
-	case pageHighway:
+	case pageHighway, pageLooks:
 		s.drawPreview(dst, a)
 	case pageBackground:
 		s.drawBackgroundPreview(dst, a)
@@ -94,33 +108,15 @@ func (s *Settings) Draw(dst *ebiten.Image, a *App) {
 }
 
 func (s *Settings) drawPreview(dst *ebiten.Image, a *App) {
-	// live highway preview
-	px, py, pw, ph := 1000.0, 230.0, 840.0, 560.0
-	Panel(dst, px-20, py-20, pw+40, ph+70)
-	cfg := a.Settings.Highway
-	k := pw / render.ScreenW
-	s.preview.Cfg = render.HighwayConfig{
-		CenterX: px + pw/2, StrikeY: py + cfg.StrikeY*k*1.0, TopY: py + cfg.TopY*k,
-		NearWidth: cfg.NearWidth * k, FarRatio: cfg.FarRatio, Lookahead: cfg.Lookahead,
+	if s.look == nil {
+		return
 	}
-	var b render.Batch
-	h := s.preview
-	for z := 0.0; z < 1; z += 0.1 {
-		y0, y1 := h.Y(z), h.Y(z+0.1)
-		l0, r0 := h.X(0, 5, z), h.X(5, 5, z)
-		l1, r1 := h.X(0, 5, z+0.1), h.X(5, 5, z+0.1)
-		c := render.WithAlpha(th.Highway, 1-z*0.6)
-		b.Quad(dst, l0, y0, r0, y0, r1, y1, l1, y1, c, c, c, c)
-	}
-	for l := 0; l < 5; l++ {
-		for _, z := range []float64{0.2, 0.55} {
-			x := h.X(float64(l)+0.5, 5, z)
-			sc := h.Scale(z)
-			b.Ellipse(dst, x, h.Y(z), 30*sc*k*2.4, 16*sc*k*2.4, render.Lighten(th.Lanes[l], 0.3), th.Lanes[l])
-		}
-	}
-	b.Flush(dst)
-	render.Text(dst, "Highway preview", render.Cond, 24, px, py+ph+10, th.TextDim, render.Left)
+	px, py, pw := 1000.0, 250.0, 840.0
+	ph := pw * render.ScreenH / render.ScreenW
+	Panel(dst, px-20, py-20, pw+40, ph+90)
+	s.look.draw(dst, px, py, pw)
+	label := "Preview: " + currentTheme(a).label
+	render.Text(dst, truncateW(label, render.Cond, 24, pw), render.Cond, 24, px, py+ph+16, th.TextDim, render.Left)
 }
 
 // drawBackgroundPreview shows the chosen background in the shape of the

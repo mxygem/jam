@@ -43,6 +43,16 @@ type Settings struct {
 	BackgroundDim   float64 `json:"background_dim"`   // 0..1 darkening over the image
 	BackgroundMenus bool    `json:"background_menus"` // show the image behind menus too
 	Browse          Browse  `json:"browse"`
+	Look            Look    `json:"look"`
+}
+
+// Look is the chosen theme and note size (see render.ThemeSpec).
+type Look struct {
+	// Theme is a built-in theme's name, "file:<name>" for a file in the
+	// themes folder, or "custom" for Custom. "" is the Jam theme.
+	Theme    string            `json:"theme"`
+	Custom   *render.ThemeSpec `json:"custom,omitempty"` // the player's own look
+	NoteSize float64           `json:"note_size"`        // 1 is normal
 }
 
 // Browse is how the song list is sorted, filtered and rated.
@@ -102,6 +112,7 @@ func Default() *Settings {
 		BackgroundDim:   0.45,
 		BackgroundMenus: true,
 		Browse:          Browse{Sort: "artist", DiffScale: "charter", Filter: Filter{InstMode: "all"}},
+		Look:            Look{Theme: "Jam", NoteSize: 1},
 	}
 }
 
@@ -122,6 +133,7 @@ func SettingsPath() string { return filepath.Join(Dir(), "settings.json") }
 func BindingsPath() string { return filepath.Join(Dir(), "bindings.json") }
 func RunsDir() string      { return filepath.Join(Dir(), "runs") }
 func SongsDir() string     { return filepath.Join(Dir(), "songs") }
+func ThemesDir() string    { return filepath.Join(Dir(), "themes") }
 
 // Load reads settings, falling back to defaults. On first run the Clone Hero
 // song folders are imported.
@@ -139,6 +151,9 @@ func Load() (*Settings, bool) {
 	}
 	if s.Highway.NearWidth == 0 {
 		s.Highway = render.DefaultHighway()
+	}
+	if s.Look.NoteSize <= 0 {
+		s.Look.NoteSize = 1
 	}
 	if s.Engine.EarlyWindow == 0 {
 		s.Engine = engine.DefaultSettings()

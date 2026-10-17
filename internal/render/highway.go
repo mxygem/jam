@@ -100,7 +100,7 @@ func lanesFor(t *chart.Track) (int, [7]int, [7]color.RGBA, *Theme) {
 			for i, l := range []int{1, 2, 3, 4, 5} {
 				pos[l] = i
 			}
-			col[1], col[2], col[3], col[4], col[5] = th.Drums[1], th.Drums[2], th.Drums[3], FiveLaneOrange, th.Drums[5]
+			col[1], col[2], col[3], col[4], col[5] = th.Drums[1], th.Drums[2], th.Drums[3], th.DrumOrange, th.Drums[5]
 			return 5, pos, col, th
 		}
 		for i, l := range []int{1, 2, 3, 4} {
@@ -143,22 +143,61 @@ func (h *Highway) Draw(dst *ebiten.Image, f *FrameState) {
 	// --- surface ---
 	left := func(z float64) float64 { return h.X(0, lanes, z) }
 	right := func(z float64) float64 { return h.X(float64(lanes), lanes, z) }
+	lk := CurrentLook
 	surf := th.Highway
 	if f.SPActive {
-		surf = Mix(surf, color.RGBA{0x10, 0x3A, 0x52, 0xF0}, 0.6)
+		surf = Mix(surf, th.SPHighway, 0.6)
+	}
+	opacity := lk.HighwayOpacity
+	near, far := surf, surf
+	switch lk.Highway {
+	case HwGradient:
+		near, far = Lighten(surf, 0.16), Darken(surf, 0.45)
+	case HwGlass:
+		near, far = Lighten(surf, 0.08), surf
+		opacity *= 0.85
 	}
 	steps := []float64{zMin, 0, 0.5, 0.86, 1}
 	for i := 0; i < len(steps)-1; i++ {
 		z0, z1 := steps[i], steps[i+1]
-		c0, c1 := WithAlpha(surf, fadeFar(z0)*fadePast(z0)*0.94), WithAlpha(surf, fadeFar(z1)*fadePast(z1)*0.94)
+		s0, s1 := Mix(near, far, math.Max(0, z0)), Mix(near, far, z1)
+		c0, c1 := WithAlpha(s0, fadeFar(z0)*fadePast(z0)*opacity), WithAlpha(s1, fadeFar(z1)*fadePast(z1)*opacity)
 		b.Quad(dst, left(z0), h.Y(z0), right(z0), h.Y(z0), right(z1), h.Y(z1), left(z1), h.Y(z1), c0, c0, c1, c1)
 	}
-	// Alternate lane tint for depth.
-	for l := 1; l < lanes; l += 2 {
-		z0, z1 := 0.0, 1.0
-		tint := color.RGBA{0xFF, 0xFF, 0xFF, 0x06}
-		b.Quad(dst, h.X(float64(l), lanes, z0), h.Y(z0), h.X(float64(l+1), lanes, z0), h.Y(z0),
-			h.X(float64(l+1), lanes, z1), h.Y(z1), h.X(float64(l), lanes, z1), h.Y(z1), tint, tint, color.RGBA{}, color.RGBA{})
+	switch lk.Highway {
+	case HwLanes:
+		// each lane tinted in its note color, strongest near the strike line
+		lc := make([]color.RGBA, lanes)
+		for l, p := range pos {
+			if p >= 0 && p < lanes {
+				lc[p] = col[l]
+			}
+		}
+		for l := 0; l < lanes; l++ {
+			n0, n1 := WithAlpha(lc[l], 0.22*opacity), WithAlpha(lc[l], 0.06*opacity)
+			fl := float64(l)
+			b.Quad(dst, h.X(fl, lanes, zMin), h.Y(zMin), h.X(fl+1, lanes, zMin), h.Y(zMin),
+				h.X(fl+1, lanes, 0.86), h.Y(0.86), h.X(fl, lanes, 0.86), h.Y(0.86), n0, n0, n1, n1)
+		}
+	case HwGlass:
+		// sheen along both rails and down the middle
+		for _, e := range [][2]float64{{0, 0.45}, {float64(lanes), float64(lanes) - 0.45}} {
+			sh := WithAlpha(white, 0.10)
+			b.Quad(dst, h.X(e[0], lanes, 0), h.Y(0), h.X(e[1], lanes, 0), h.Y(0),
+				h.X(e[1], lanes, 0.86), h.Y(0.86), h.X(e[0], lanes, 0.86), h.Y(0.86), sh, color.RGBA{}, color.RGBA{}, WithAlpha(white, 0.02))
+		}
+		mid := float64(lanes) / 2
+		gl := WithAlpha(white, 0.05)
+		b.Quad(dst, h.X(mid-0.6, lanes, 0), h.Y(0), h.X(mid+0.6, lanes, 0), h.Y(0),
+			h.X(mid+0.6, lanes, 0.86), h.Y(0.86), h.X(mid-0.6, lanes, 0.86), h.Y(0.86), color.RGBA{}, gl, color.RGBA{}, color.RGBA{})
+	default:
+		// Alternate lane tint for depth.
+		for l := 1; l < lanes; l += 2 {
+			z0, z1 := 0.0, 1.0
+			tint := color.RGBA{0xFF, 0xFF, 0xFF, 0x06}
+			b.Quad(dst, h.X(float64(l), lanes, z0), h.Y(z0), h.X(float64(l+1), lanes, z0), h.Y(z0),
+				h.X(float64(l+1), lanes, z1), h.Y(z1), h.X(float64(l), lanes, z1), h.Y(z1), tint, tint, color.RGBA{}, color.RGBA{})
+		}
 	}
 
 	// --- beat lines ---
@@ -176,15 +215,19 @@ func (h *Highway) Draw(dst *ebiten.Image, f *FrameState) {
 		}
 		s := h.Scale(z)
 		y := h.Y(z)
-		c := WithAlpha(th.Beat, alpha*a)
-		b.Line(dst, left(z), y, right(z), y, w*s, c, c)
+		c := WithAlpha(th.Beat, math.Min(1, alpha*lk.BeatLines)*a)
+		if lk.BeatLines > 0 {
+			b.Line(dst, left(z), y, right(z), y, w*s, c, c)
+		}
 	}
 
 	// --- lane dividers & rails ---
 	for l := 1; l < lanes; l++ {
 		x0, y0 := h.X(float64(l), lanes, zMin), h.Y(zMin)
 		x1, y1 := h.X(float64(l), lanes, 1), h.Y(1)
-		b.Line(dst, x0, y0, x1, y1, 1.6, WithAlpha(th.Beat, 0.10), color.RGBA{})
+		if lk.LaneLines > 0 {
+			b.Line(dst, x0, y0, x1, y1, 1.6, WithAlpha(th.Beat, math.Min(1, 0.10*lk.LaneLines)), color.RGBA{})
+		}
 	}
 	rail := th.Rail
 	if f.SPActive {
@@ -234,6 +277,30 @@ func (h *Highway) Draw(dst *ebiten.Image, f *FrameState) {
 		grow := 1 + 0.12*lit
 		rx, ry = rx*grow, ry*grow
 		top := ys + dy
+		rimC, _ := lk.Rim.colors(c)
+		switch lk.Material {
+		case MatFlat:
+			// flat: a ring on the highway, filled while pressed
+			if pressed || lit > 0.05 {
+				b.Ellipse(dst, cx, ys, rx, ry, Lighten(c, 0.35+0.45*lit), Lighten(c, 0.25*lit))
+			} else {
+				b.Ellipse(dst, cx, ys, rx, ry, WithAlpha(Darken(c, 0.6), 0.85), WithAlpha(Darken(c, 0.6), 0.85))
+			}
+			b.Ring(dst, cx, ys, rx, ry, 7, rimC, rimC)
+			b.Ring(dst, cx, ys, rx*0.55, ry*0.55, 4, WithAlpha(c, 0.9), WithAlpha(c, 0.9))
+			continue
+		case MatNeon:
+			dark := color.RGBA{0x0A, 0x0A, 0x12, 0xFF}
+			b.Ellipse(dst, cx, ys, rx+12, ry+10, WithAlpha(c, 0.25+0.35*lit), WithAlpha(c, 0))
+			fill := dark
+			if pressed || lit > 0.05 {
+				fill = Mix(dark, c, 0.5+0.4*lit)
+			}
+			b.Ellipse(dst, cx, top, rx, ry, fill, Mix(fill, c, 0.3))
+			b.Ring(dst, cx, top, rx, ry, 7, Lighten(c, 0.5+0.4*lit), c)
+			b.Ring(dst, cx, top, rx*0.55, ry*0.55, 4, Lighten(c, 0.3), c)
+			continue
+		}
 		// socket the button sits in
 		b.Ellipse(dst, cx+4, ys+depth+7, rx+8, ry+7, WithAlpha(black, 0.55), color.RGBA{})
 		b.Ellipse(dst, cx, ys+depth, rx+3, ry+2, Darken(c, 0.85), Darken(c, 0.9))
@@ -241,13 +308,19 @@ func (h *Highway) Draw(dst *ebiten.Image, f *FrameState) {
 		b.CylinderSide(dst, cx, top, rx, ry, math.Max(1, depth-dy), Darken(c, 0.78), Darken(c, 0.2))
 		if pressed || lit > 0.05 {
 			b.Ellipse(dst, cx, top, rx, ry, Lighten(c, 0.45+0.45*lit), Lighten(c, 0.35*lit))
-			b.Ring(dst, cx, top, rx, ry, 6, Lighten(silver, 0.5*lit), Lighten(c, 0.6))
+			b.Ring(dst, cx, top, rx, ry, 6, Lighten(rimC, 0.5*lit), Lighten(c, 0.6))
 			b.EllipseArc(dst, cx, top, rx, ry, 4, litFrom, litTo, WithAlpha(white, 0.8))
 		} else {
 			// colored bezel around a recessed dark center
+			bezel0, bezel1 := Lighten(c, 0.2), Darken(c, 0.15)
+			if lk.Rim != RimSilver {
+				bezel0, bezel1 = lk.Rim.colors(c)
+			}
 			b.Ellipse(dst, cx, top, rx, ry, Darken(c, 0.3), Darken(c, 0.5))
-			b.Ring(dst, cx, top, rx, ry, 8, Lighten(c, 0.2), Darken(c, 0.15))
-			b.EllipseArc(dst, cx, top, rx, ry, 4, litFrom, litTo, WithAlpha(white, 0.65))
+			b.Ring(dst, cx, top, rx, ry, 8, bezel0, bezel1)
+			if lk.Material != MatMatte {
+				b.EllipseArc(dst, cx, top, rx, ry, 4, litFrom, litTo, WithAlpha(white, 0.65))
+			}
 			b.EllipseArc(dst, cx, top, rx-4, ry-2, 3, shadeFrom, shadeTo, WithAlpha(black, 0.4))
 			irx, iry := rx*0.55, ry*0.55
 			b.Ellipse(dst, cx, top, irx, iry, capDark, Darken(c, 0.62))
@@ -365,7 +438,7 @@ func (h *Highway) Draw(dst *ebiten.Image, f *FrameState) {
 			if lanesMask&1 != 0 && hitLanes&1 == 0 {
 				kc := col[chart.DrumKick]
 				if n.DoubleKick {
-					kc = Lighten(color.RGBA{0xFF, 0x50, 0x9A, 0xFF}, 0.1)
+					kc = th.DoubleKick
 				}
 				if sp {
 					kc = th.StarPower
@@ -463,7 +536,7 @@ func (h *Highway) Draw(dst *ebiten.Image, f *FrameState) {
 func (h *Highway) drawGem(dst *ebiten.Image, style GemStyle, c color.RGBA, p float64, lanes int, z, s, y, alpha, scale float64, accent, activation bool) {
 	lw := h.Cfg.NearWidth / float64(lanes)
 	img := GemSprite(style, c)
-	w := lw * 0.88 * s * scale
+	w := lw * 0.88 * s * scale * CurrentLook.NoteSize
 	k := w / (2 * gemRX)
 	x := h.X(p, lanes, z)
 	op := &ebiten.DrawImageOptions{Filter: ebiten.FilterLinear}
@@ -490,7 +563,7 @@ func (h *Highway) drawBar(dst *ebiten.Image, lanes int, z float64, c color.RGBA,
 	lw := h.Cfg.NearWidth / float64(lanes)
 	x0 := h.X(0.15, lanes, z)
 	x1 := h.X(float64(lanes)-0.15, lanes, z)
-	t := lw * thick * s
+	t := lw * thick * s * CurrentLook.NoteSize
 	var b Batch
 	b.Quad(dst, x0, y-t/2+t*0.35, x1, y-t/2+t*0.35, x1, y+t/2+t*0.35, x0, y+t/2+t*0.35,
 		WithAlpha(Darken(c, 0.5), alpha), WithAlpha(Darken(c, 0.5), alpha), WithAlpha(Darken(c, 0.7), alpha), WithAlpha(Darken(c, 0.7), alpha))

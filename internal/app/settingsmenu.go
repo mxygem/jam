@@ -38,7 +38,19 @@ type settingsMenu struct {
 	page     int // -1 while choosing a page
 	items    List
 	onChange func() // called after any setting changes
-	typing   *TextInput
+
+	typing      *TextInput
+	typingTitle string
+	onTyped     func(string)
+
+	picker       *colorPicker // editing a theme color
+	previewDrums bool         // the Appearance preview plays drums
+}
+
+// startTyping asks for a line of text.
+func (m *settingsMenu) startTyping(title, value string, done func(string)) {
+	m.typing = &TextInput{Value: value, Max: 400}
+	m.typingTitle, m.onTyped = title, done
 }
 
 func clampf(v, lo, hi float64) float64 { return math.Max(lo, math.Min(hi, v)) }
@@ -228,7 +240,8 @@ func newSettingsMenu(a *App, inSong bool) *settingsMenu {
 	if !inSong {
 		system = append(system,
 			Item{Label: "Add a song folder...", Hint: "Type or paste a folder path, then Enter", Activate: func() {
-				m.typing = &TextInput{Placeholder: `C:\Users\you\Songs`, Max: 400}
+				m.startTyping("Add a song folder", "", func(s string) { addSongFolder(a, s) })
+				m.typing.Placeholder = `C:\Users\you\Songs`
 			}},
 			Item{Label: "Rescan library", Activate: func() { a.RescanLibrary(); a.Toast("Rescanning library...") }},
 		)
@@ -237,6 +250,7 @@ func newSettingsMenu(a *App, inSong bool) *settingsMenu {
 	m.pages = []settingsPage{
 		{pageGameplay, "Gameplay", "Hit windows, leniency, no fail, drums", gameplay},
 		{pageHighway, "Highway and visuals", "Note speed, highway shape, bounce, effects, lyrics", highway},
+		{pageLooks, "Appearance", "Themes, note materials, highway style and every color", lookItems(a, m, inSong)},
 		{pageBackground, "Background", "Pick a background image and how dark it is", background},
 		{pageAudio, "Audio and timing", "Volume, previews, error sounds, offsets, latency calibration", audioItems},
 	}
@@ -297,6 +311,9 @@ func (m *settingsMenu) pageID() string {
 
 // title is the heading for what's on screen.
 func (m *settingsMenu) title() string {
+	if m.picker != nil {
+		return m.picker.slot.Label
+	}
 	if m.page < 0 {
 		return "Settings"
 	}
@@ -312,8 +329,19 @@ func (m *settingsMenu) update(a *App) bool {
 		case cancel:
 			m.typing = nil
 		case done:
-			addSongFolder(a, m.typing.Value)
+			v := m.typing.Value
 			m.typing = nil
+			if m.onTyped != nil {
+				m.onTyped(v)
+			}
+		}
+		return false
+	}
+	if m.picker != nil {
+		closed := m.picker.update(a)
+		m.changed()
+		if closed {
+			m.picker = nil
 		}
 		return false
 	}
@@ -335,7 +363,10 @@ func (m *settingsMenu) update(a *App) bool {
 // rows is how many rows the current list shows.
 func (m *settingsMenu) rows() int {
 	l := &m.cats
-	if m.page >= 0 {
+	switch {
+	case m.picker != nil:
+		l = &m.picker.list
+	case m.page >= 0:
 		l = &m.items
 	}
 	return min(len(l.Items), max(1, l.Visible))
@@ -343,6 +374,9 @@ func (m *settingsMenu) rows() int {
 
 // hint is the help line for the selected entry.
 func (m *settingsMenu) hint() string {
+	if m.picker != nil {
+		return m.picker.list.Hint()
+	}
 	if m.page < 0 {
 		return m.cats.Hint()
 	}
@@ -351,6 +385,10 @@ func (m *settingsMenu) hint() string {
 
 // draw draws the current list at x, y.
 func (m *settingsMenu) draw(dst *ebiten.Image, x, y, w, rowH float64) {
+	if m.picker != nil {
+		m.picker.list.Draw(dst, x, y, w, rowH)
+		return
+	}
 	if m.page < 0 {
 		m.cats.Draw(dst, x, y, w, rowH)
 	} else {
@@ -359,12 +397,15 @@ func (m *settingsMenu) draw(dst *ebiten.Image, x, y, w, rowH float64) {
 }
 
 func (m *settingsMenu) drawTyping(dst *ebiten.Image) {
+	if m.picker != nil {
+		m.picker.drawTyping(dst)
+	}
 	if m.typing == nil {
 		return
 	}
 	render.Dim(dst, render.RGBA(0, 0, 0, 0xB8))
 	Panel(dst, 260, 400, 1400, 240)
-	render.Text(dst, "Add a song folder", render.UIBold, 36, 300, 430, th.Text, render.Left)
+	render.Text(dst, m.typingTitle, render.UIBold, 36, 300, 430, th.Text, render.Left)
 	m.typing.Draw(dst, 300, 500, 1320)
 	render.Text(dst, "Enter to add, Esc to cancel", render.Cond, 24, 300, 580, th.TextDim, render.Left)
 }

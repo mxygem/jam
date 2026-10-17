@@ -186,7 +186,7 @@ func TestSettingsPages(t *testing.T) {
 		t.Fatalf("scene %T", a.scene)
 	}
 	h.shot("settings")
-	for _, id := range []string{pageGameplay, pageHighway, pageBackground, pageAudio, pageControls, pageLibrary} {
+	for _, id := range []string{pageGameplay, pageHighway, pageLooks, pageBackground, pageAudio, pageControls, pageLibrary} {
 		h.tap(bitA)
 		if s.menu.pageID() != id {
 			t.Fatalf("opened %q, want %q", s.menu.pageID(), id)

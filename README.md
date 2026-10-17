@@ -18,9 +18,10 @@ Working now:
 - Setup wizard per instrument: detects the device, then each fret, strum, Star Power, tilt, whammy, Start and Select (or each pad, collecting every note a pad sends, like head and rim). Live test screen with a raw event log, then save.
 - Latency calibration: audio (tap to a click track) and video (tap to a visual metronome).
 - Recording and analysis: every run is saved with all inputs and judgments. The results screen shows a timing histogram, early/late bias, accuracy per section, accuracy per note type, every miss with a reason ("wrong frets: held --Y--, needed -R---", "120 ms too late", "hit the tom, chart has a cymbal"), sustains held, streak breaks, and tips. Runs re-simulate exactly from their inputs.
+- Appearance: Settings > Appearance picks a theme (Jam, Neon, Arcade, Chrome, Pastel, Midnight, Gold, Glass, Color-blind friendly), a note material (classic, glossy, matte, metal, glass, neon, flat), rim, note size and highway style, and edits every color one by one (hue, saturation, brightness, quick picks or a hex code) while a song plays in a live preview. Changes make a custom look, which can be saved as a theme file to keep or share.
 - Clone Hero song folders are imported automatically from Clone Hero's `settings.ini` on first run. A built-in demo song is always available.
 
-Planned: interface tuning beyond the current settings (highway width, angle, length and note speed are adjustable now), custom art (backgrounds, highways, gems), vocals, `.sng` packages, auto-charting from audio.
+Planned: custom art (highway and gem images), vocals, `.sng` packages, auto-charting from audio.
 
 ## Build
 
@@ -65,6 +66,7 @@ Under `%AppData%\jam` on Windows (`~/.config/jam` on Linux; override with `JAM_H
 - `bindings.json`: controller mappings per instrument family (guitar, drums)
 - `runs/`: one gzipped JSON file per playthrough with every input and judgment
 - `songs/`: the demo song (and a good place for your own)
+- `themes/`: theme files, one JSON file per theme (`name`, `colors` by slot as `#RRGGBB`, `material`, `rim`, `highway`, `highway_opacity`, `beat_lines`, `lane_lines`; anything left out comes from the Jam theme)
 
 ## Layout
 

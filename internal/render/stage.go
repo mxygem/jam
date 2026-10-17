@@ -68,3 +68,12 @@ func ViewSize(w, h int) (int, int) {
 	}
 	return ScreenW, max(ScreenH, (ScreenW*h+w/2)/w)
 }
+
+// Offscreen runs fn with the canvas taken as the whole screen, for drawing
+// a screen-sized picture into an image of its own (settings previews).
+func Offscreen(fn func()) {
+	saved := cur
+	cur = stage{}
+	defer func() { cur = saved }()
+	fn()
+}

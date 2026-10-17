@@ -307,9 +307,9 @@ func drawBackground(dst *ebiten.Image, now float64, sp, useImage bool) {
 	}
 	var b Batch
 	b.Rect(img, 0, 0, w, h, th.BGTop, th.BGBottom)
-	glow := color.RGBA{0x40, 0x22, 0x70, 0x50}
+	glow := WithAlpha(th.BGGlow, 0.31)
 	if sp {
-		glow = color.RGBA{0x10, 0x60, 0x80, 0x60}
+		glow = WithAlpha(Darken(th.StarPower, 0.45), 0.38)
 	}
 	pulse := 0.9 + 0.1*math.Sin(now*1.3)
 	b.Ellipse(img, ox+ScreenW/2, oy+ScreenH*0.55, 900*pulse, 520*pulse, glow, color.RGBA{})

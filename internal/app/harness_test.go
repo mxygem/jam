@@ -1,6 +1,7 @@
 package app
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -22,12 +23,15 @@ type harness struct {
 	a      *App
 	now    float64
 	screen *ebiten.Image
+	shots  bool // JAM_SHOTS: draw every frame
 }
+
+const drawEvery = 6
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
 	t.Setenv("JAM_HOME", t.TempDir())
-	h := &harness{t: t, now: 100}
+	h := &harness{t: t, now: 100, shots: os.Getenv("JAM_SHOTS") != ""}
 	t.Cleanup(clock.Override(func() float64 { return h.now }))
 	settings := config.Default()
 	b, err := input.LoadBindings(config.BindingsPath())
@@ -35,6 +39,7 @@ func newHarness(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	a := &App{Settings: settings, Bindings: b, NoAudio: true, SFX: playback.NewSFX(nil)}
+	applyLook(a) // tests share the theme: start each from the default
 	a.Index = library.Open(filepath.Join(config.Dir(), "library.json.gz"))
 	a.Scores = replay.LoadScores(filepath.Join(config.Dir(), "scores.json"), config.RunsDir())
 	a.Art = newArtCache()
@@ -71,14 +76,19 @@ func (h *harness) frame(evs ...input.RawEvent) {
 			h.t.Fatal(err)
 		}
 	}()
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				h.t.Fatalf("panic in %T.Draw: %v", a.scene, r)
-			}
+	// Without a running game loop Ebitengine keeps every draw command until
+	// the process ends, so draw every few frames (every frame when taking
+	// screenshots, where the commands are carried out).
+	if h.shots || a.frame%drawEvery == 1 {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					h.t.Fatalf("panic in %T.Draw: %v", a.scene, r)
+				}
+			}()
+			a.scene.Draw(h.screen, a)
 		}()
-		a.scene.Draw(h.screen, a)
-	}()
+	}
 	h.now += 1.0 / 60
 }
 
@@ -127,6 +137,10 @@ const (
 	keyEscape    = ebiten.KeyEscape
 	keyBackspace = ebiten.KeyBackspace
 	keyEnter     = ebiten.KeyEnter
+	keyLeft      = ebiten.KeyArrowLeft
+	keyRight     = ebiten.KeyArrowRight
+	keyArrowUp   = ebiten.KeyArrowUp
+	keyArrowDown = ebiten.KeyArrowDown
 )
 
 func keyDown(k ebiten.Key) input.RawEvent {

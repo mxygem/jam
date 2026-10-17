@@ -150,6 +150,7 @@ func Run(opts Options) error {
 		log.Printf("bindings: %v", err)
 	}
 	a := &App{Opts: opts, Settings: settings, Bindings: b, NoAudio: os.Getenv("JAM_NOAUDIO") != ""}
+	applyLook(a)
 	if opts.Screenshot != "" && a.NoAudio {
 		a.fixed = true
 		a.fakeNow = clock.Now()

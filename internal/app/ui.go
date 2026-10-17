@@ -29,7 +29,16 @@ type Item struct {
 	Hint     string
 	Disabled bool
 	Range    bool
+	// Header items are section titles: drawn small and skipped over.
+	Header bool
+	// Swatch, if set, is a color shown beside the value.
+	Swatch func() color.RGBA
+	// Extra, if set, draws something in the row between label and value
+	// (a color bar, say).
+	Extra func(dst *ebiten.Image, x, y, w, h float64)
 }
+
+func (it *Item) skip() bool { return it.Disabled || it.Header }
 
 // List is a vertical, scrollable menu.
 type List struct {
@@ -112,12 +121,12 @@ func (l *List) Update(a *App) bool {
 	move := func(d int) {
 		for i := 0; i < len(l.Items); i++ {
 			l.Sel = (l.Sel + d + len(l.Items)) % len(l.Items)
-			if !l.Items[l.Sel].Disabled {
+			if !l.Items[l.Sel].skip() {
 				break
 			}
 		}
 	}
-	if l.Items[l.Sel].Disabled {
+	if l.Items[l.Sel].skip() {
 		move(1)
 	}
 	for _, act := range a.MenuActs {
@@ -152,6 +161,9 @@ func (l *List) Update(a *App) bool {
 	if l.Sel < l.Top {
 		l.Top = l.Sel
 	}
+	if l.Sel == l.Top && l.Sel > 0 && l.Items[l.Sel-1].Header {
+		l.Top-- // show the section title above its first item
+	}
 	if l.Sel >= l.Top+l.Visible {
 		l.Top = l.Sel - l.Visible + 1
 	}
@@ -183,7 +195,7 @@ func (l *List) mouse(a *App) bool {
 	if m.X < l.gx-16 || m.X > l.gx+l.gw+16 || m.Y < l.gy-6 || i < l.Top || i >= len(l.Items) || i >= l.Top+l.Visible {
 		return false
 	}
-	if l.Items[i].Disabled {
+	if l.Items[i].skip() {
 		return false
 	}
 	l.Sel = i
@@ -192,6 +204,9 @@ func (l *List) mouse(a *App) bool {
 	}
 	it := l.Items[i]
 	switch {
+	case it.Swatch != nil && it.Activate != nil:
+		it.Activate() // a color: open its editor
+		return true
 	case it.Range && it.Adjust != nil:
 		l.editing = true
 		return true
@@ -221,6 +236,12 @@ func (l *List) Draw(dst *ebiten.Image, x, y, w, rowH float64) {
 	for i := l.Top; i < len(l.Items) && i < l.Top+l.Visible; i++ {
 		it := l.Items[i]
 		ry := y + float64(i-l.Top)*rowH
+		if it.Header {
+			render.Text(dst, strings.ToUpper(it.Label), render.CondBold, 24, x, ry+rowH*0.34, th.Accent, render.Left)
+			tw, _ := render.Measure(strings.ToUpper(it.Label), render.CondBold, 24)
+			render.FillRect(dst, x+tw+16, ry+rowH*0.34+14, w-tw-16, 2, render.WithAlpha(th.TextDim, 0.35))
+			continue
+		}
 		sel := i == l.Sel
 		if sel {
 			glow := 0.85 + 0.15*math.Sin(now*5)
@@ -235,8 +256,18 @@ func (l *List) Draw(dst *ebiten.Image, x, y, w, rowH float64) {
 			c = render.WithAlpha(th.TextDim, 0.6)
 		}
 		render.Text(dst, it.Label, render.UI, 34, x, ry, c, render.Left)
+		if it.Extra != nil {
+			it.Extra(dst, x, ry, w, rowH)
+		}
 		if it.Value != nil {
 			v := it.Value()
+			if it.Swatch != nil {
+				vw, _ := render.Measure(v, render.UI, 32)
+				if it.Adjust != nil && sel && !l.editing {
+					vw, _ = render.Measure("<  "+v+"  >", render.UI, 32)
+				}
+				drawSwatch(dst, x+w-vw-62, ry+2, 46, rowH-20, it.Swatch())
+			}
 			switch {
 			case sel && l.editing:
 				// value being changed: accent box with up/down marks
@@ -266,6 +297,13 @@ func (l *List) Draw(dst *ebiten.Image, x, y, w, rowH float64) {
 		b.Quad(dst, cx-14, yb, cx+14, yb, cx+14, yb, cx, yb+16, th.TextDim, th.TextDim, th.TextDim, th.TextDim)
 	}
 	b.Flush(dst)
+}
+
+// drawSwatch draws a color sample with a thin border.
+func drawSwatch(dst *ebiten.Image, x, y, w, h float64, c color.RGBA) {
+	render.RoundRect(dst, x-2, y-2, w+4, h+4, 9, render.WithAlpha(th.TextDim, 0.8))
+	render.RoundRect(dst, x, y, w, h, 7, render.RGBA(0x10, 0x10, 0x14, 0xFF))
+	render.RoundRect(dst, x, y, w, h, 7, render.Premul(c))
 }
 
 // Hint returns the selected item's hint.
