@@ -77,21 +77,8 @@ func noteSpeed(lookahead float64) float64 {
 
 func lookaheadFor(speed float64) float64 { return baseLookahead / speed }
 
-// speedStep is the note speed change for one step: finer at low speeds.
-func speedStep(v float64, up bool) float64 {
-	if !up {
-		v -= 1e-9 // stepping down from a boundary uses the finer step
-	}
-	switch {
-	case v < 2:
-		return 0.05
-	case v < 5:
-		return 0.1
-	case v < 10:
-		return 0.25
-	}
-	return 0.5
-}
+// speedStep is the note speed change for one step.
+const speedStep = 0.01
 
 func newSettingsMenu(a *App, inSong bool) *settingsMenu {
 	m := &settingsMenu{inSong: inSong, page: -1}
@@ -139,10 +126,7 @@ func newSettingsMenu(a *App, inSong bool) *settingsMenu {
 		{Label: "Note speed", Hint: "How fast notes come down the highway (higher is faster)", Range: true,
 			Value: func() string { return fmt.Sprintf("%.2fx", noteSpeed(hw.Lookahead)) },
 			Adjust: func(d int) {
-				v := noteSpeed(hw.Lookahead)
-				for i := 0; i < absInt(d); i++ {
-					v += float64(sign(d)) * speedStep(v, d > 0)
-				}
+				v := math.Round(noteSpeed(hw.Lookahead)*100)/100 + float64(d)*speedStep
 				hw.Lookahead = lookaheadFor(clampf(v, minNoteSpeed, maxNoteSpeed))
 			}},
 		{Label: "Highway width", Range: true, Value: func() string { return fmt.Sprintf("%.0f px", hw.NearWidth) },

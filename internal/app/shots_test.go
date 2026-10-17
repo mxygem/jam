@@ -311,8 +311,12 @@ func TestRangeEditing(t *testing.T) {
 	a.Settings.Highway.Lookahead = lookaheadFor(9.9)
 	s.menu.open(pageHighway)
 	it := s.menu.items.Items[0]
+	it.Adjust(1)
+	if v := noteSpeed(a.Settings.Highway.Lookahead); math.Abs(v-9.91) > 1e-6 {
+		t.Errorf("one step from 9.90x gave %.4f, want 9.91", v)
+	}
 	for i := 0; i < 100; i++ {
-		it.Adjust(1)
+		it.Adjust(20)
 	}
 	if v := noteSpeed(a.Settings.Highway.Lookahead); math.Abs(v-maxNoteSpeed) > 1e-6 {
 		t.Errorf("note speed tops out at %.2f, want %v", v, float64(maxNoteSpeed))

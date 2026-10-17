@@ -56,6 +56,8 @@ func rangeStep(a *App, act action.Action) int {
 		held = a.Menu.HeldFor(act, clock.Now())
 	}
 	switch {
+	case held > 4:
+		return 50
 	case held > 2.5:
 		return 20
 	case held > 1.2:
