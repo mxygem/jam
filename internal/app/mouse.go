@@ -19,10 +19,11 @@ type Mouse struct {
 	tick     int
 }
 
-func (m *Mouse) update() {
+// update reads the mouse; ox, oy is where the canvas sits on the screen.
+func (m *Mouse) update(ox, oy float64) {
 	m.tick++
 	x, y := ebiten.CursorPosition()
-	m.X, m.Y = float64(x), float64(y)
+	m.X, m.Y = float64(x)-ox, float64(y)-oy
 	m.Moved = m.X != m.lastX || m.Y != m.lastY
 	_, wy := ebiten.Wheel()
 	m.Wheel = wy

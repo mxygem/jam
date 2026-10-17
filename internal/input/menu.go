@@ -69,10 +69,10 @@ func (mi *MenuInput) Feed(evs []RawEvent, now float64) []action.Action {
 		if down {
 			if !mi.held[a] {
 				out = append(out, a)
+				mi.heldSince[a] = t
+				mi.lastRep[a] = t
 			}
 			mi.held[a] = true
-			mi.heldSince[a] = t
-			mi.lastRep[a] = t
 		} else {
 			mi.held[a] = false
 		}
@@ -107,4 +107,12 @@ func (mi *MenuInput) Feed(evs []RawEvent, now float64) []action.Action {
 		}
 	}
 	return out
+}
+
+// HeldFor is how long a menu direction has been held (0 when it isn't).
+func (mi *MenuInput) HeldFor(a action.Action, now float64) float64 {
+	if !mi.held[a] {
+		return 0
+	}
+	return now - mi.heldSince[a]
 }

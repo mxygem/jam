@@ -45,6 +45,7 @@ type Options struct {
 	ShotAt     float64 // song time for the screenshot
 	ShotScene  string  // "play" (default), "menu", "results", "wizard", "select"
 	Windowed   bool
+	WindowSize string // "WxH"
 }
 
 // Scene is one screen of the game.
@@ -70,6 +71,11 @@ type App struct {
 	Art    *artCache
 	Queue  *playlist.Playlist // the playlist being built or played
 	Run    *playRun           // playing through a playlist
+
+	BG *backgrounds
+
+	viewW, viewH int           // logical screen size (see Layout)
+	canvas       *ebiten.Image // the 1920x1080 canvas on wider screens
 
 	// playlistFromMenu: the playlist screen was opened from the main menu,
 	// so backing out returns there rather than to the song list.
@@ -167,6 +173,8 @@ func Run(opts Options) error {
 	a.Scores = replay.LoadScores(filepath.Join(config.Dir(), "scores.json"), config.RunsDir())
 	a.Art = newArtCache()
 	a.Queue = &playlist.Playlist{}
+	a.BG = newBackgrounds(CustomsDir())
+	a.BG.Apply(settings.Background, true)
 	if _, err := demo.Write(config.SongsDir()); err != nil {
 		log.Printf("demo song: %v", err)
 	}
@@ -174,6 +182,10 @@ func Run(opts Options) error {
 
 	ebiten.SetWindowTitle("jam")
 	ebiten.SetWindowSize(1600, 900)
+	var ww, wh int
+	if _, err := fmt.Sscanf(opts.WindowSize, "%dx%d", &ww, &wh); err == nil && ww > 0 && wh > 0 {
+		ebiten.SetWindowSize(ww, wh)
+	}
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	// Keep running when another window has focus: the song clock and the
 	// controller threads don't stop, so the game loop shouldn't either.
@@ -350,7 +362,9 @@ func (a *App) Update() (err error) {
 	a.Raw = a.Input.Poll(a.Raw[:0])
 	a.MenuActs = a.Menu.Feed(a.Raw, now)
 	a.Chars = ebiten.AppendInputChars(a.Chars[:0])
-	a.Mouse.update()
+	a.BG.update(a)
+	mx, my := a.canvasOffset()
+	a.Mouse.update(mx, my)
 	a.checkShotRequest()
 	if inpututil.IsKeyJustPressed(ebiten.KeyF11) || (inpututil.IsKeyJustPressed(ebiten.KeyEnter) && ebiten.IsKeyPressed(ebiten.KeyAlt)) {
 		fs := !ebiten.IsFullscreen()
@@ -376,7 +390,7 @@ func (a *App) Quit() { a.quit = true }
 
 // TakeScreenshotNext captures the next drawn frame (when --screenshot is set).
 func (a *App) TakeScreenshotNext() {
-	if a.Opts.Screenshot != "" {
+	if a.Opts.Screenshot != "" && !a.BG.busy() {
 		a.wantShot = true
 	}
 }
@@ -424,13 +438,45 @@ func (a *App) Draw(screen *ebiten.Image) {
 	if a.fixed && !a.wantShot {
 		return // only the captured frame is drawn; keeps fixed-step capture fast
 	}
-	a.scene.Draw(screen, a)
+	render.SetStage(nil, 0, 0)
+	// The game is laid out on a 1920x1080 canvas. A window of another shape
+	// gets the canvas in the middle with backgrounds drawn edge to edge.
+	dst := screen
+	ox, oy := a.canvasOffset()
+	wide := ox != 0 || oy != 0
+	if wide {
+		if a.canvas == nil {
+			a.canvas = ebiten.NewImage(render.ScreenW, render.ScreenH)
+		}
+		a.canvas.Clear()
+		dst = a.canvas
+		render.SetStage(screen, ox, oy)
+	}
+	a.scene.Draw(dst, a)
+	a.drawToast(dst)
+	if wide {
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Translate(ox, oy)
+		screen.DrawImage(a.canvas, op)
+		render.SetStage(nil, 0, 0)
+	}
 	if a.wantShot {
-		defer a.TakeScreenshot(screen)
+		a.TakeScreenshot(screen)
 	}
 	if a.userShot {
-		defer a.saveUserShot(screen)
+		a.saveUserShot(screen)
 	}
+}
+
+// canvasOffset is where the 1920x1080 canvas sits on the screen.
+func (a *App) canvasOffset() (float64, float64) {
+	if a.viewW == 0 {
+		return 0, 0
+	}
+	return float64(a.viewW-render.ScreenW) / 2, float64(a.viewH-render.ScreenH) / 2
+}
+
+func (a *App) drawToast(screen *ebiten.Image) {
 	if a.toast != "" {
 		dt := clock.Now() - a.toastAt
 		if dt < 4 {
@@ -448,8 +494,12 @@ func (a *App) Draw(screen *ebiten.Image) {
 	}
 }
 
-// Layout implements ebiten.Game: a fixed 1080p canvas scaled to the window.
-func (a *App) Layout(w, h int) (int, int) { return render.ScreenW, render.ScreenH }
+// Layout implements ebiten.Game: a 1080p canvas, widened (or heightened) to
+// the window's shape and scaled to fit.
+func (a *App) Layout(w, h int) (int, int) {
+	a.viewW, a.viewH = render.ViewSize(w, h)
+	return a.viewW, a.viewH
+}
 
 // TakeScreenshot writes the screen to a PNG (used for automated checks).
 func (a *App) TakeScreenshot(screen *ebiten.Image) {

@@ -39,6 +39,7 @@ func newHarness(t *testing.T) *harness {
 	a.Scores = replay.LoadScores(filepath.Join(config.Dir(), "scores.json"), config.RunsDir())
 	a.Art = newArtCache()
 	a.Queue = &playlist.Playlist{}
+	a.BG = newBackgrounds(CustomsDir())
 	a.Input = input.NewBackground()
 	t.Cleanup(a.Input.Close)
 	a.Menu = input.NewMenuInput(a.Bindings, a.Input.Devices())

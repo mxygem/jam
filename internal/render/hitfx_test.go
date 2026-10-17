@@ -42,3 +42,26 @@ func TestHitFxHelpers(t *testing.T) {
 		t.Error("unset hit effects should default to full")
 	}
 }
+
+func TestThumpCalmsOnRuns(t *testing.T) {
+	open := 0
+	single := thump([]HitFx{{At: 1, Lane: open}}, open, 1.0)
+	if single < 5 {
+		t.Fatalf("a lone open note should still bounce: %.2f", single)
+	}
+	// A run of open notes 125 ms apart barely moves the highway.
+	var run []HitFx
+	for i := 0; i < 8; i++ {
+		run = append(run, HitFx{At: 1 + float64(i)*0.125, Lane: open})
+	}
+	peak := 0.0
+	for now := 1.875; now < 2.1; now += 0.005 {
+		peak = math.Max(peak, math.Abs(thump(run, open, now)))
+	}
+	if peak > 0.8 {
+		t.Errorf("open-note run bounces %.2f px, want under 0.8", peak)
+	}
+	if thump(run, 3, 1.9) != 0 {
+		t.Error("other lanes don't thump")
+	}
+}

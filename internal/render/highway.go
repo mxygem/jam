@@ -37,6 +37,7 @@ type FrameState struct {
 	ExpertPlus bool       //
 	Hits       []HitFx    // recent successful hits, for hit effects
 	Fx         FxLevel    // how much the hit effects do
+	Bounce     float64    // 0..1: how much open notes and kicks bounce the highway
 }
 
 func (h *Highway) far() float64 { return h.Cfg.FarRatio / (1 - h.Cfg.FarRatio) }
@@ -132,7 +133,7 @@ func (h *Highway) Draw(dst *ebiten.Image, f *FrameState) {
 	if drums {
 		thumpLane = chart.DrumKick
 	}
-	if d := thump(f.Hits, thumpLane, f.Now); d != 0 && f.Fx != FxOff {
+	if d := thump(f.Hits, thumpLane, f.Now) * f.Bounce; d != 0 && f.Fx != FxOff {
 		saved := h.Cfg
 		h.Cfg.StrikeY += d
 		h.Cfg.TopY += d * 0.35
@@ -216,6 +217,7 @@ func (h *Highway) Draw(dst *ebiten.Image, f *FrameState) {
 		c := col[l]
 		rx := lw * 0.40
 		ry := rx * 0.50
+		depth := rx * 0.24 // how far the button stands up from its socket
 		pressed := false
 		if drums {
 			pressed = f.Now-f.PadHit[l] < 0.09 && f.Now >= f.PadHit[l]
@@ -224,21 +226,33 @@ func (h *Highway) Draw(dst *ebiten.Image, f *FrameState) {
 		}
 		dy := 0.0
 		if pressed {
-			dy = 4
+			dy = depth * 0.45
 		}
 		// A hit kicks the target down and lets it spring back.
 		down, lit := punch(lastHit(f.Hits, l, f.Now))
-		dy += down
-		grow := 1 + 0.16*lit
+		dy += down * 0.6
+		grow := 1 + 0.12*lit
 		rx, ry = rx*grow, ry*grow
-		b.Ellipse(dst, cx, ys+8, rx+4, ry+6, color.RGBA{0, 0, 0, 0xA0}, color.RGBA{0, 0, 0, 0x60})
+		top := ys + dy
+		// socket the button sits in
+		b.Ellipse(dst, cx+4, ys+depth+7, rx+8, ry+7, WithAlpha(black, 0.55), color.RGBA{})
+		b.Ellipse(dst, cx, ys+depth, rx+3, ry+2, Darken(c, 0.85), Darken(c, 0.9))
+		// side wall, shorter while pushed in
+		b.CylinderSide(dst, cx, top, rx, ry, math.Max(1, depth-dy), Darken(c, 0.78), Darken(c, 0.2))
 		if pressed || lit > 0.05 {
-			b.Ellipse(dst, cx, ys+dy, rx, ry, Lighten(c, 0.45+0.45*lit), Lighten(c, 0.35*lit))
-			b.Ring(dst, cx, ys+dy, rx, ry, 6, Lighten(silver, 0.5*lit), Lighten(c, 0.6))
+			b.Ellipse(dst, cx, top, rx, ry, Lighten(c, 0.45+0.45*lit), Lighten(c, 0.35*lit))
+			b.Ring(dst, cx, top, rx, ry, 6, Lighten(silver, 0.5*lit), Lighten(c, 0.6))
+			b.EllipseArc(dst, cx, top, rx, ry, 4, litFrom, litTo, WithAlpha(white, 0.8))
 		} else {
-			b.Ellipse(dst, cx, ys, rx, ry, Darken(c, 0.55), Darken(c, 0.8))
-			b.Ring(dst, cx, ys, rx, ry, 7, Lighten(c, 0.2), Darken(c, 0.2))
-			b.Ellipse(dst, cx, ys, rx*0.42, ry*0.42, capDark, Darken(c, 0.6))
+			// colored bezel around a recessed dark center
+			b.Ellipse(dst, cx, top, rx, ry, Darken(c, 0.3), Darken(c, 0.5))
+			b.Ring(dst, cx, top, rx, ry, 8, Lighten(c, 0.2), Darken(c, 0.15))
+			b.EllipseArc(dst, cx, top, rx, ry, 4, litFrom, litTo, WithAlpha(white, 0.65))
+			b.EllipseArc(dst, cx, top, rx-4, ry-2, 3, shadeFrom, shadeTo, WithAlpha(black, 0.4))
+			irx, iry := rx*0.55, ry*0.55
+			b.Ellipse(dst, cx, top, irx, iry, capDark, Darken(c, 0.62))
+			b.EllipseArc(dst, cx, top, irx, iry, irx*0.22, -math.Pi*0.95, -math.Pi*0.05, WithAlpha(black, 0.6))
+			b.EllipseArc(dst, cx, top, irx, iry, 2.5, math.Pi*0.15, math.Pi*0.85, WithAlpha(Lighten(c, 0.4), 0.6))
 		}
 	}
 	if drums {

@@ -179,6 +179,50 @@ func (b *Batch) Arc(dst *ebiten.Image, cx, cy, r, thickness, a0, a1 float64, c c
 	}
 }
 
+// CylinderSide adds the visible side wall of an elliptical cylinder whose top
+// face is the ellipse (cx, cy, rx, ry), h pixels deep. It is lit from the
+// upper left: dark is the shadowed edge, light the lit one; the wall also
+// darkens toward its bottom.
+func (b *Batch) CylinderSide(dst *ebiten.Image, cx, cy, rx, ry, h float64, dark, light color.RGBA) {
+	if h <= 0 {
+		return
+	}
+	const n = 32
+	shade := func(a float64) color.RGBA {
+		// a runs 0 (right) .. pi (left) across the front of the wall
+		k := 0.5 + 0.5*math.Cos(a-2.25)
+		return Mix(dark, light, k*k)
+	}
+	for i := 0; i < n; i++ {
+		a0 := math.Pi * float64(i) / n
+		a1 := math.Pi * float64(i+1) / n
+		x0, y0 := cx+rx*math.Cos(a0), cy+ry*math.Sin(a0)
+		x1, y1 := cx+rx*math.Cos(a1), cy+ry*math.Sin(a1)
+		c0, c1 := shade(a0), shade(a1)
+		b.Quad(dst, x0, y0, x1, y1, x1, y1+h, x0, y0+h, c0, c1, Darken(c1, 0.35), Darken(c0, 0.35))
+	}
+}
+
+// EllipseArc adds a thick elliptical arc from angle a0 to a1 (0 = right,
+// -pi/2 = top), fading out toward both ends: rim highlights and shadows.
+func (b *Batch) EllipseArc(dst *ebiten.Image, cx, cy, rx, ry, thick, a0, a1 float64, c color.RGBA) {
+	const n = 24
+	irx, iry := math.Max(0, rx-thick), math.Max(0, ry-thick*ry/math.Max(rx, 1e-6))
+	b.room(2*(n+1), dst)
+	base := uint16(len(b.v))
+	for k := 0; k <= n; k++ {
+		t := float64(k) / n
+		a := a0 + (a1-a0)*t
+		cs, sn := math.Cos(a), math.Sin(a)
+		cc := WithAlpha(c, math.Sin(math.Pi*t))
+		b.v = append(b.v, vtx(cx+rx*cs, cy+ry*sn, cc), vtx(cx+irx*cs, cy+iry*sn, cc))
+	}
+	for k := 0; k < n; k++ {
+		o := base + uint16(2*k)
+		b.i = append(b.i, o, o+1, o+2, o+1, o+3, o+2)
+	}
+}
+
 // Line adds a thick line segment.
 func (b *Batch) Line(dst *ebiten.Image, x0, y0, x1, y1, w float64, c0, c1 color.RGBA) {
 	dx, dy := x1-x0, y1-y0

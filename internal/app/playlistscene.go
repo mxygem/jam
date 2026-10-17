@@ -312,14 +312,14 @@ func (p *PlaylistScene) Draw(dst *ebiten.Image, a *App) {
 	}
 	switch p.mode {
 	case plEntry, plOptions, plLoad:
-		render.FillRect(dst, 0, 0, render.ScreenW, render.ScreenH, render.RGBA(0, 0, 0, 0xB8))
+		render.Dim(dst, render.RGBA(0, 0, 0, 0xB8))
 		Panel(dst, 520, 200, 880, 720)
 		title := map[plMode]string{plEntry: "Song", plOptions: "Playlist", plLoad: "Saved playlists"}[p.mode]
 		render.Text(dst, title, render.Display, 52, 560, 220, th.Text, render.Left)
 		p.menu.Draw(dst, 580, 320, 760, 66)
 		render.Text(dst, p.menu.Hint(), render.UI, 24, 560, 870, th.TextDim, render.Left)
 	case plName:
-		render.FillRect(dst, 0, 0, render.ScreenW, render.ScreenH, render.RGBA(0, 0, 0, 0xB8))
+		render.Dim(dst, render.RGBA(0, 0, 0, 0xB8))
 		Panel(dst, 520, 400, 880, 240)
 		render.Text(dst, "Name this playlist", render.UIBold, 34, 560, 420, th.Text, render.Left)
 		p.input.Draw(dst, 560, 490, 800)

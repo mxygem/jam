@@ -51,6 +51,7 @@ type Play struct {
 	jIdx       int
 	mute       []string
 	lastNote   float64
+	length     float64 // song length shown on the progress bar
 	finished   bool
 	failed     bool
 	section    int
@@ -113,7 +114,14 @@ func NewPlay(a *App, s *chart.Song, c *chart.Chart, t *chart.Track, au *playback
 		p.bot = botEvents(t, set.Engine.ExpertPlus)
 		p.rec.Rec.Device = "autoplay"
 	}
-	p.frame = render.FrameState{Chart: c, Track: t, Eng: p.eng, ExpertPlus: set.Engine.ExpertPlus, Fx: render.ParseFxLevel(set.HitFx)}
+	p.frame = render.FrameState{Chart: c, Track: t, Eng: p.eng, ExpertPlus: set.Engine.ExpertPlus, Fx: render.ParseFxLevel(set.HitFx), Bounce: set.HighwayBounce}
+	if set.Background == bgRandom {
+		a.BG.Apply(bgRandom, true) // a new image for each song
+	}
+	p.length = p.lastNote + 2.5
+	if d := au.Duration(); d > 0 && d < p.length {
+		p.length = d
+	}
 	for i := range p.frame.Flash {
 		p.frame.Flash[i] = -100
 		p.frame.PadHit[i] = -100
@@ -451,6 +459,7 @@ func (p *Play) applyLive(a *App) {
 	}
 	p.hw.Cfg = hc
 	p.frame.Fx = render.ParseFxLevel(set.HitFx)
+	p.frame.Bounce = set.HighwayBounce
 	p.hs.ShowTiming = set.ShowTiming
 	switch {
 	case !set.ShowLyrics:
@@ -525,8 +534,9 @@ func (p *Play) Draw(dst *ebiten.Image, a *App) {
 	h.SPEnergy = st.SPEnergy
 	h.SPActive = st.SPActive
 	h.Rock = st.Rock
-	if p.lastNote > 0 {
-		h.Progress = rn / p.lastNote
+	h.SongTime, h.Length = rn, p.length
+	if p.length > 0 {
+		h.Progress = rn / p.length
 	}
 	h.TitleAlpha = 0
 	if rn < 2 {
@@ -559,7 +569,7 @@ func (p *Play) Draw(dst *ebiten.Image, a *App) {
 	case p.paused && p.pset != nil:
 		p.drawPauseSettings(dst)
 	case p.paused:
-		render.FillRect(dst, 0, 0, render.ScreenW, render.ScreenH, render.RGBA(0, 0, 0, 0xA8))
+		render.Dim(dst, render.RGBA(0, 0, 0, 0xA8))
 		Panel(dst, 600, 270, 720, 560)
 		render.Text(dst, "Paused", render.Display, 64, 640, 290, th.Text, render.Left)
 		p.pause.Draw(dst, 660, 400, 600, 72)
@@ -573,7 +583,7 @@ func (p *Play) Draw(dst *ebiten.Image, a *App) {
 // highway visible so highway and effect changes can be seen as they're made.
 func (p *Play) drawPauseSettings(dst *ebiten.Image) {
 	m := p.pset
-	render.FillRect(dst, 0, 0, render.ScreenW, render.ScreenH, render.RGBA(0, 0, 0, 0x50))
+	render.Dim(dst, render.RGBA(0, 0, 0, 0x50))
 	x, w := 40.0, 600.0
 	Panel(dst, x-20, 40, w+40, render.ScreenH-80)
 	render.Text(dst, m.title(), render.Display, 48, x+4, 60, th.Text, render.Left)

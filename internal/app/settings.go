@@ -2,6 +2,8 @@ package app
 
 import (
 	"fmt"
+	"image"
+	"math"
 	"os"
 	"strings"
 
@@ -82,6 +84,8 @@ func (s *Settings) Draw(dst *ebiten.Image, a *App) {
 	switch s.menu.pageID() {
 	case pageHighway:
 		s.drawPreview(dst, a)
+	case pageBackground:
+		s.drawBackgroundPreview(dst, a)
 	case pageLibrary, "":
 		s.drawFolders(dst, a, 1000, 250)
 	}
@@ -117,6 +121,34 @@ func (s *Settings) drawPreview(dst *ebiten.Image, a *App) {
 	}
 	b.Flush(dst)
 	render.Text(dst, "Highway preview", render.Cond, 24, px, py+ph+10, th.TextDim, render.Left)
+}
+
+// drawBackgroundPreview shows the chosen background in the shape of the
+// screen, darkened as it will be in game.
+func (s *Settings) drawBackgroundPreview(dst *ebiten.Image, a *App) {
+	px, py, pw := 1000.0, 250.0, 840.0
+	vw, vh := float64(max(a.viewW, render.ScreenW)), float64(max(a.viewH, render.ScreenH))
+	ph := math.Min(pw*vh/vw, 472)
+	Panel(dst, px-20, py-20, pw+40, ph+150)
+	render.FillRect(dst, px, py, pw, ph, render.RGBA(0x0a, 0x0a, 0x12, 0xFF))
+	img := a.BG.image()
+	set := a.Settings
+	label := bgLabel(set.Background)
+	if img != nil {
+		iw, ih := float64(img.Bounds().Dx()), float64(img.Bounds().Dy())
+		k := math.Max(pw/iw, ph/ih)
+		op := &ebiten.DrawImageOptions{Filter: ebiten.FilterLinear}
+		op.GeoM.Scale(k, k)
+		op.GeoM.Translate(px+(pw-iw*k)/2, py+(ph-ih*k)/2)
+		box := dst.SubImage(image.Rect(int(px), int(py), int(px+pw), int(py+ph))).(*ebiten.Image)
+		box.DrawImage(img, op)
+		render.FillRect(dst, px, py, pw, ph, render.RGBA(0, 0, 0, uint8(255*set.BackgroundDim)))
+	} else if set.Background != bgDefault {
+		label += "  (loading...)"
+	}
+	n := len(a.BG.List())
+	render.Text(dst, truncateW(label, render.UIBold, 28, pw), render.UIBold, 28, px, py+ph+20, th.Text, render.Left)
+	render.Text(dst, fmt.Sprintf("%s in %s", plural(n, "image"), CustomsDir()), render.Cond, 22, px, py+ph+66, th.TextDim, render.Left)
 }
 
 func (s *Settings) drawFolders(dst *ebiten.Image, a *App, px, y float64) {

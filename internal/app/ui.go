@@ -17,6 +17,10 @@ var th = &render.DefaultTheme
 
 // Item is a menu entry. Value, if set, is shown on the right and Left/Right
 // call Adjust.
+//
+// A Range item is a number: green (or Enter) starts editing it, strum up and
+// down (or the arrows) change it, faster the longer they're held, and green
+// or red finishes. Its Adjust gets steps larger than one while held.
 type Item struct {
 	Label    string
 	Value    func() string
@@ -24,6 +28,7 @@ type Item struct {
 	Activate func()
 	Hint     string
 	Disabled bool
+	Range    bool
 }
 
 // List is a vertical, scrollable menu.
@@ -33,18 +38,74 @@ type List struct {
 	Top     int
 	Visible int
 
+	editing bool // changing a Range item's value
+
 	// where it was last drawn, for the mouse
 	gx, gy, gw, gh float64
 	drawn          bool
 }
 
-// Update handles navigation. It returns true if an item was activated.
+// Editing reports whether a Range item is being changed.
+func (l *List) Editing() bool { return l.editing }
+
+// rangeStep is how big a step held input makes: one at first, then
+// bigger the longer the strum (or arrow) is held.
+func rangeStep(a *App, act action.Action) int {
+	held := 0.0
+	if a.Menu != nil {
+		held = a.Menu.HeldFor(act, clock.Now())
+	}
+	switch {
+	case held > 2.5:
+		return 20
+	case held > 1.2:
+		return 5
+	}
+	return 1
+}
+
+// updateEditing changes the value of the item being edited.
+func (l *List) updateEditing(a *App) {
+	it := l.Items[l.Sel]
+	for _, act := range a.MenuActs {
+		switch act {
+		case action.MenuUp, action.MenuRight:
+			it.Adjust(rangeStep(a, act))
+		case action.MenuDown, action.MenuLeft:
+			it.Adjust(-rangeStep(a, act))
+		case action.MenuConfirm, action.MenuBack:
+			l.editing = false
+			return
+		}
+	}
+	m := &a.Mouse
+	switch {
+	case m.Wheel > 0:
+		it.Adjust(1)
+	case m.Wheel < 0:
+		it.Adjust(-1)
+	}
+	if m.Click || m.Right {
+		l.editing = false
+	}
+}
+
+// Update handles navigation. It returns true if an item was activated, or
+// if input went to editing a value (callers then ignore it, so red
+// finishing an edit doesn't also leave the menu).
 func (l *List) Update(a *App) bool {
 	if len(l.Items) == 0 {
 		return false
 	}
 	if l.Visible == 0 {
 		l.Visible = 10
+	}
+	if l.editing {
+		if l.Sel < len(l.Items) && l.Items[l.Sel].Adjust != nil {
+			l.updateEditing(a)
+			return true
+		}
+		l.editing = false
 	}
 	move := func(d int) {
 		for i := 0; i < len(l.Items); i++ {
@@ -72,7 +133,10 @@ func (l *List) Update(a *App) bool {
 				it.Adjust(d)
 			}
 		case action.MenuConfirm:
-			if it := l.Items[l.Sel]; it.Activate != nil {
+			if it := l.Items[l.Sel]; it.Range && it.Adjust != nil {
+				l.editing = true
+				return true
+			} else if it.Activate != nil {
 				it.Activate()
 				return true
 			} else if it.Adjust != nil {
@@ -126,6 +190,9 @@ func (l *List) mouse(a *App) bool {
 	}
 	it := l.Items[i]
 	switch {
+	case it.Range && it.Adjust != nil:
+		l.editing = true
+		return true
 	case it.Adjust != nil && it.Value != nil:
 		// clicking the left part of the value steps back, elsewhere forward
 		if m.X > l.gx+l.gw*0.55 && m.X < l.gx+l.gw*0.78 {
@@ -168,10 +235,23 @@ func (l *List) Draw(dst *ebiten.Image, x, y, w, rowH float64) {
 		render.Text(dst, it.Label, render.UI, 34, x, ry, c, render.Left)
 		if it.Value != nil {
 			v := it.Value()
-			if it.Adjust != nil && sel {
-				v = "<  " + v + "  >"
+			switch {
+			case sel && l.editing:
+				// value being changed: accent box with up/down marks
+				vw, _ := render.Measure(v, render.UIBold, 32)
+				bx := x + w - vw - 44
+				render.RoundRect(dst, bx-14, ry-4, vw+72, rowH-10, 10, render.WithAlpha(th.Accent, 0.9))
+				render.Text(dst, v, render.UIBold, 32, bx, ry+1, th.Text, render.Left)
+				var b render.Batch
+				ax, ay := x+w+6, ry+rowH*0.38
+				b.Quad(dst, ax-9, ay-3, ax+9, ay-3, ax+9, ay-3, ax, ay-14, th.Text, th.Text, th.Text, th.Text)
+				b.Quad(dst, ax-9, ay+5, ax+9, ay+5, ax+9, ay+5, ax, ay+16, th.Text, th.Text, th.Text, th.Text)
+				b.Flush(dst)
+			case it.Adjust != nil && sel:
+				render.Text(dst, "<  "+v+"  >", render.UI, 32, x+w, ry+2, c, render.Right)
+			default:
+				render.Text(dst, v, render.UI, 32, x+w, ry+2, c, render.Right)
 			}
-			render.Text(dst, v, render.UI, 32, x+w, ry+2, c, render.Right)
 		}
 	}
 	var b render.Batch
@@ -188,8 +268,18 @@ func (l *List) Draw(dst *ebiten.Image, x, y, w, rowH float64) {
 
 // Hint returns the selected item's hint.
 func (l *List) Hint() string {
+	if l.editing {
+		return "Strum up or down to change it (hold to go faster). Green or red when done."
+	}
 	if l.Sel >= 0 && l.Sel < len(l.Items) {
-		return l.Items[l.Sel].Hint
+		h := l.Items[l.Sel].Hint
+		if l.Items[l.Sel].Range {
+			if h != "" {
+				h += ". "
+			}
+			h += "Green to change"
+		}
+		return h
 	}
 	return ""
 }
@@ -224,15 +314,16 @@ func GlassPanel(dst *ebiten.Image, x, y, w, h float64) {
 // MenuBackground is the shared animated menu backdrop.
 func MenuBackground(dst *ebiten.Image) {
 	now := clock.Now()
-	render.Background(dst, now, false)
-	// slow drifting highway lines for a bit of life
+	render.MenuBackdrop(dst, now)
+	// slow drifting highway lines for a bit of life, at the right edge
+	img, w, h, _, _ := render.Backdrop(dst)
 	var b render.Batch
 	for i := 0; i < 14; i++ {
-		y := math.Mod(float64(i)*90+now*60, 1260) - 90
+		y := math.Mod(float64(i)*90+now*60, h+180) - 90
 		a := 0.05 + 0.03*math.Sin(float64(i))
-		b.Line(dst, 1100, y, 1920, y+300, 2, render.WithAlpha(th.Accent, a), render.WithAlpha(th.Accent, 0))
+		b.Line(img, w-820, y, w, y+300, 2, render.WithAlpha(th.Accent, a), render.WithAlpha(th.Accent, 0))
 	}
-	b.Flush(dst)
+	b.Flush(img)
 }
 
 func fmtDur(sec float64) string {

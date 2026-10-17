@@ -53,6 +53,7 @@ func main() {
 	flag.Float64Var(&o.ShotAt, "at", 10, "song time (seconds) for --screenshot")
 	flag.StringVar(&o.ShotScene, "scene", "", "scene for --screenshot without --song: menu, select, wizard")
 	flag.BoolVar(&o.Windowed, "windowed", false, "ignore the fullscreen setting")
+	flag.StringVar(&o.WindowSize, "window", "", "window size, e.g. 3840x1080 (for screenshots of other screen shapes)")
 	flag.Parse()
 	if o.Screenshot != "" && o.Song == "" && o.ShotScene == "" {
 		o.ShotScene = "menu"

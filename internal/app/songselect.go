@@ -592,7 +592,7 @@ func (s *SongSelect) Draw(dst *ebiten.Image, a *App) {
 
 	switch s.ov {
 	case ovPicker:
-		render.FillRect(dst, 0, 0, render.ScreenW, render.ScreenH, render.RGBA(0, 0, 0, 0xB8))
+		render.Dim(dst, render.RGBA(0, 0, 0, 0xB8))
 		Panel(dst, 560, 300, 800, 500)
 		render.RichText(dst, song.Name, render.Display, 52, 600, 320, th.Text, render.Left, 720)
 		s.menu.Draw(dst, 620, 420, 680, 70)
@@ -600,7 +600,7 @@ func (s *SongSelect) Draw(dst *ebiten.Image, a *App) {
 			render.Text(dst, bestLine(b), render.Cond, 26, 600, 770, th.TextDim, render.Left)
 		}
 	case ovOptions:
-		render.FillRect(dst, 0, 0, render.ScreenW, render.ScreenH, render.RGBA(0, 0, 0, 0xB8))
+		render.Dim(dst, render.RGBA(0, 0, 0, 0xB8))
 		Panel(dst, 470, 180, 980, 760)
 		render.Text(dst, "Song list options", render.Display, 52, 510, 200, th.Text, render.Left)
 		s.menu.Draw(dst, 530, 300, 860, 68)

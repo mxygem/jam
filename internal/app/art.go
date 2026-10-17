@@ -196,28 +196,30 @@ func (b *backdrop) draw(dst *ebiten.Image) {
 		k = 1
 		b.prev = nil
 	}
+	full, w, h, _, _ := render.Backdrop(dst)
 	if b.prev != nil {
-		drawCover(dst, b.prev.blur, 0.5*(1-k))
+		drawCover(full, b.prev.blur, w, h, 0.5*(1-k))
 	}
 	if b.cur != nil {
-		drawCover(dst, b.cur.blur, 0.5*k)
+		drawCover(full, b.cur.blur, w, h, 0.5*k)
 	}
 	// keep text readable over bright art
 	if b.cur != nil || b.prev != nil {
-		render.FillRect(dst, 0, 0, render.ScreenW, render.ScreenH, color.RGBA{0x08, 0x08, 0x10, 0x60})
+		render.FillRect(full, 0, 0, w, h, color.RGBA{0x08, 0x08, 0x10, 0x60})
 	}
 }
 
-// drawCover scales img to cover the screen (cropping the overflow).
-func drawCover(dst, img *ebiten.Image, alpha float64) {
+// drawCover scales img to cover a w x h area at the origin (cropping the
+// overflow).
+func drawCover(dst, img *ebiten.Image, w, h, alpha float64) {
 	if img == nil || alpha <= 0 {
 		return
 	}
 	iw, ih := float64(img.Bounds().Dx()), float64(img.Bounds().Dy())
-	s := max(render.ScreenW/iw, render.ScreenH/ih)
+	s := max(w/iw, h/ih)
 	op := &ebiten.DrawImageOptions{Filter: ebiten.FilterLinear}
 	op.GeoM.Scale(s, s)
-	op.GeoM.Translate((render.ScreenW-iw*s)/2, (render.ScreenH-ih*s)/2)
+	op.GeoM.Translate((w-iw*s)/2, (h-ih*s)/2)
 	op.ColorScale.ScaleAlpha(float32(alpha))
 	dst.DrawImage(img, op)
 }

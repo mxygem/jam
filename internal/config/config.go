@@ -33,7 +33,13 @@ type Settings struct {
 	LeadIn         float64              `json:"lead_in"` // seconds before the first note
 	HitFx          string               `json:"hit_fx"`  // hit effects: full, reduced, off
 	ShowLyrics     bool                 `json:"show_lyrics"`
-	Browse         Browse               `json:"browse"`
+	HighwayBounce  float64              `json:"highway_bounce"` // 0..1: open notes and kicks bounce the highway
+	// Background is "" (built in), "random", or an image path relative to
+	// the customs folder.
+	Background      string  `json:"background"`
+	BackgroundDim   float64 `json:"background_dim"`   // 0..1 darkening over the image
+	BackgroundMenus bool    `json:"background_menus"` // show the image behind menus too
+	Browse          Browse  `json:"browse"`
 }
 
 // Browse is how the song list is sorted, filtered and rated.
@@ -77,16 +83,19 @@ func (f Filter) Active() bool {
 // Default returns fresh settings.
 func Default() *Settings {
 	return &Settings{
-		Engine:     engine.DefaultSettings(),
-		Highway:    render.DefaultHighway(),
-		Volume:     0.9,
-		ShowTiming: true,
-		MuteOnMiss: true,
-		VSync:      true,
-		LeadIn:     2.5,
-		HitFx:      "full",
-		ShowLyrics: true,
-		Browse:     Browse{Sort: "artist", DiffScale: "charter", Filter: Filter{InstMode: "all"}},
+		Engine:          engine.DefaultSettings(),
+		Highway:         render.DefaultHighway(),
+		Volume:          0.9,
+		ShowTiming:      true,
+		MuteOnMiss:      true,
+		VSync:           true,
+		LeadIn:          2.5,
+		HitFx:           "full",
+		ShowLyrics:      true,
+		HighwayBounce:   0.3,
+		BackgroundDim:   0.45,
+		BackgroundMenus: true,
+		Browse:          Browse{Sort: "artist", DiffScale: "charter", Filter: Filter{InstMode: "all"}},
 	}
 }
 

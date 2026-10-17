@@ -21,6 +21,7 @@ type filterEditor struct {
 	input   TextInput
 	orig    string
 	changed bool
+	closing bool // "Done" was chosen
 }
 
 func newFilterEditor(a *App) *filterEditor {
@@ -135,7 +136,7 @@ func (e *filterEditor) build() {
 				e.touch()
 				e.build()
 			}},
-			Item{Label: "Done"},
+			Item{Label: "Done", Hint: "Close the filters (Esc or red also closes)", Activate: func() { e.closing = true }},
 		)
 	}
 	e.list = List{Items: items, Visible: 9, Sel: min(sel, len(items)-1)}
@@ -172,10 +173,7 @@ func (e *filterEditor) update(a *App) bool {
 		return false
 	}
 	if e.list.Update(a) {
-		if !e.parts && e.rule < 0 && e.list.Items[e.list.Sel].Label == "Done" {
-			return true
-		}
-		return false
+		return e.closing
 	}
 	if a.Pressed(action.MenuBack) || a.Mouse.Right {
 		switch {
@@ -193,7 +191,7 @@ func (e *filterEditor) update(a *App) bool {
 }
 
 func (e *filterEditor) draw(dst *ebiten.Image, a *App) {
-	render.FillRect(dst, 0, 0, render.ScreenW, render.ScreenH, render.RGBA(0, 0, 0, 0xB8))
+	render.Dim(dst, render.RGBA(0, 0, 0, 0xB8))
 	Panel(dst, 420, 150, 1080, 820)
 	title := "Filter songs"
 	switch {
@@ -210,7 +208,7 @@ func (e *filterEditor) draw(dst *ebiten.Image, a *App) {
 	}
 	render.Text(dst, hint, render.UI, 24, 460, 900, th.TextDim, render.Left)
 	if e.typing {
-		render.FillRect(dst, 0, 0, render.ScreenW, render.ScreenH, render.RGBA(0, 0, 0, 0x60))
+		render.Dim(dst, render.RGBA(0, 0, 0, 0x60))
 		Panel(dst, 520, 420, 880, 220)
 		render.Text(dst, fieldLabel(e.f.Fields[e.rule].Field)+" contains", render.UIBold, 32, 560, 440, th.Text, render.Left)
 		e.input.Draw(dst, 560, 500, 800)

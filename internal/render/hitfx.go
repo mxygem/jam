@@ -99,13 +99,31 @@ func lastHit(hits []HitFx, lane int, now float64) float64 {
 }
 
 // thump is how far the whole highway is knocked down by recent kicks (drums)
-// or open notes (guitar): a short damped bounce.
+// or open notes (guitar): a short damped bounce. Hits in quick succession
+// bounce less, so a run of open notes doesn't shake the highway.
 func thump(hits []HitFx, lane int, now float64) float64 {
-	dt := lastHit(hits, lane, now)
-	if dt > 0.25 {
+	last, prev := math.Inf(1), math.Inf(1)
+	for _, h := range hits {
+		if h.Lane != lane {
+			continue
+		}
+		if dt := now - h.At; dt >= 0 {
+			switch {
+			case dt < last:
+				last, prev = dt, last
+			case dt < prev && dt != last:
+				prev = dt
+			}
+		}
+	}
+	if last > 0.25 {
 		return 0
 	}
-	return 6 * math.Exp(-dt/0.05) * math.Cos(2*math.Pi*dt/0.2)
+	amp := 6.0
+	if gap := prev - last; gap < 0.4 {
+		amp *= gap / 0.4 * gap / 0.4
+	}
+	return amp * math.Exp(-last/0.05) * math.Cos(2*math.Pi*last/0.2)
 }
 
 func easeOut(x float64) float64 { return 1 - (1-x)*(1-x) }
