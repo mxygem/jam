@@ -38,6 +38,7 @@ type Settings struct {
 	ShowLyrics     bool                 `json:"show_lyrics"`
 	BackingVocals  string               `json:"backing_vocals"`     // harmony/backing parts: below, above, off
 	BackingSize    float64              `json:"backing_vocal_size"` // relative to the lead's text
+	LyricFx        string               `json:"lyric_fx"`           // charted lyric effects: full, calm, off
 	HighwayBounce  float64              `json:"highway_bounce"`     // 0..1: open notes and kicks bounce the highway
 	// Background is "" (built in), "random", or an image path relative to
 	// the customs folder.
@@ -112,6 +113,7 @@ func Default() *Settings {
 		ShowLyrics:      true,
 		BackingVocals:   "below",
 		BackingSize:     0.75,
+		LyricFx:         "full",
 		HighwayBounce:   0.3,
 		BackgroundDim:   0.45,
 		BackgroundMenus: true,

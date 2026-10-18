@@ -12,6 +12,7 @@ type Syllable struct {
 	Time float64
 	Text string // display text (may contain rich text tags)
 	Join bool   // no space before the next syllable
+	FX   []FX   // effects on this syllable (its part's and phrase's included)
 }
 
 // LyricPhrase is one line of lyrics.
@@ -109,13 +110,15 @@ func buildLyrics(tm *TempoMap, lyrics []rawLyric, spans []span) []LyricPhrase {
 	var phrases []LyricPhrase
 	add := func(from, to int64, ls []rawLyric) {
 		p := LyricPhrase{Start: tm.Seconds(from), End: tm.Seconds(to)}
+		var sc fxScanner
 		for _, l := range ls {
-			text, join, ok := cleanSyllable(l.text)
+			raw, fx := sc.take(l.text)
+			text, join, ok := cleanSyllable(raw)
 			if !ok {
 				// A slide continues the previous syllable; keep its join.
 				continue
 			}
-			p.Syllables = append(p.Syllables, Syllable{Time: tm.Seconds(l.tick), Text: text, Join: join})
+			p.Syllables = append(p.Syllables, Syllable{Time: tm.Seconds(l.tick), Text: text, Join: join, FX: fx})
 		}
 		if len(p.Syllables) > 0 {
 			phrases = append(phrases, p)

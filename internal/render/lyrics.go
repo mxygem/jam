@@ -5,7 +5,6 @@ import (
 	"image/color"
 	"math"
 	"sort"
-	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
 
@@ -17,8 +16,11 @@ import (
 // is sung, with its next phrase waiting underneath; harmony and backing parts
 // get their own rows, each sweeping on its own timing in its own color.
 type Lyrics struct {
-	Y      float64 // top of the lyrics area
-	Opts   LyricOpts
+	Y    float64 // top of the lyrics area
+	Opts LyricOpts
+	// Beat gives how far song time now is into its beat (0..1), for the pulse
+	// effect. Without it, pulse assumes 120 BPM.
+	Beat   func(now float64) float64
 	tracks []*lyricTrack
 }
 
@@ -29,6 +31,9 @@ type LyricOpts struct {
 	Backing string
 	// BackingScale is the backing parts' text size relative to the lead.
 	BackingScale float64
+	// Effects is how much of the charts' lyric effects to show: "full"
+	// (default), "calm" (no shaking, flying or exploding letters) or "off".
+	Effects string
 }
 
 // BackingPlacements lists the values LyricOpts.Backing takes, in menu order.
@@ -43,6 +48,7 @@ type lyricTrack struct {
 	size     float64    // current phrase text size
 	nextSize float64    // the waiting next phrase (lead only)
 	lines    map[lineKey]*lyricLine
+	fx       []phraseFX // per phrase, filtered by LyricOpts.Effects
 }
 
 type lineKey struct {
@@ -55,7 +61,9 @@ type lineKey struct {
 type lyricLine struct {
 	img        *ebiten.Image
 	w, h       float64
-	start, end []float64 // per syllable, in pixels from the left edge
+	size       float64     // the text size it was rendered at
+	start, end []float64   // per syllable, in pixels from the left edge
+	letters    []letterBox // per visible letter, for phrases with effects
 	used       int
 }
 
@@ -77,7 +85,9 @@ var PartColors = []color.RGBA{
 }
 
 // DefaultLyricOpts are the settings used when none are saved.
-func DefaultLyricOpts() LyricOpts { return LyricOpts{Backing: "below", BackingScale: 0.75} }
+func DefaultLyricOpts() LyricOpts {
+	return LyricOpts{Backing: "below", BackingScale: 0.75, Effects: "full"}
+}
 
 // NewLyrics prepares vocal parts for drawing. It returns nil when there are
 // no lyrics. The first part is drawn as the lead.
@@ -94,6 +104,9 @@ func NewLyrics(parts []chart.VocalPart, y float64, opts LyricOpts) *Lyrics {
 			continue
 		}
 		tr := &lyricTrack{Phrases: p.Phrases, Name: p.Name, lines: map[lineKey]*lyricLine{}}
+		for k := range p.Phrases {
+			tr.fx = append(tr.fx, buildPhraseFX(&p.Phrases[k], opts.Effects))
+		}
 		if i == 0 {
 			tr.lead, tr.color, tr.size, tr.nextSize = true, DefaultTheme.Accent, lyricSize, lyricNextSize
 		} else {
@@ -121,20 +134,7 @@ func (l *Lyrics) Parts() int {
 
 // lineText joins the syllables of a phrase and records where each one sits
 // in the joined text.
-func lineText(p *chart.LyricPhrase) (string, []int, []int) {
-	var b strings.Builder
-	starts := make([]int, len(p.Syllables))
-	ends := make([]int, len(p.Syllables))
-	for i, s := range p.Syllables {
-		starts[i] = b.Len()
-		b.WriteString(s.Text)
-		ends[i] = b.Len()
-		if !s.Join && i < len(p.Syllables)-1 {
-			b.WriteByte(' ')
-		}
-	}
-	return b.String(), starts, ends
-}
+func lineText(p *chart.LyricPhrase) (string, []int, []int) { return lineTextFX(p, nil) }
 
 func (t *lyricTrack) line(i int, size float64, tick int) *lyricLine {
 	k := lineKey{i, size}
@@ -143,7 +143,11 @@ func (t *lyricTrack) line(i int, size float64, tick int) *lyricLine {
 		return ln
 	}
 	p := &t.Phrases[i]
-	s, starts, ends := lineText(p)
+	var pf *phraseFX
+	if i < len(t.fx) && t.fx[i].any {
+		pf = &t.fx[i]
+	}
+	s, starts, ends := lineTextFX(p, pf)
 	w, h := MeasureRich(s, UIBold, size)
 	if w > lyricMaxW { // long phrases shrink to fit
 		size = math.Max(20, size*lyricMaxW/w)
@@ -152,12 +156,15 @@ func (t *lyricTrack) line(i int, size float64, tick int) *lyricLine {
 	if h <= 0 {
 		h = size * 1.3
 	}
-	ln := &lyricLine{w: w, h: h, used: tick}
+	ln := &lyricLine{w: w, h: h, size: size, used: tick}
 	for j := range p.Syllables {
 		a, _ := MeasureRich(s[:starts[j]], UIBold, size)
 		b, _ := MeasureRich(s[:ends[j]], UIBold, size)
 		ln.start = append(ln.start, a)
 		ln.end = append(ln.end, b)
+	}
+	if pf != nil {
+		ln.letters = measureLetters(s, starts, ends, size)
 	}
 	iw, ih := int(math.Ceil(w))+2*lyricPad, int(math.Ceil(h))+2*lyricPad
 	ln.img = ebiten.NewImage(max(1, iw), max(1, ih))
@@ -178,7 +185,15 @@ func (t *lyricTrack) line(i int, size float64, tick int) *lyricLine {
 // current returns the index of the first phrase that hasn't finished
 // fading out at time now.
 func (t *lyricTrack) current(now float64) int {
-	return sort.Search(len(t.Phrases), func(i int) bool { return t.Phrases[i].End+0.3 >= now })
+	return sort.Search(len(t.Phrases), func(i int) bool { return t.Phrases[i].End+t.tail(i) >= now })
+}
+
+// tail is how long phrase i stays up after it ends (longer when it explodes).
+func (t *lyricTrack) tail(i int) float64 {
+	if i < len(t.fx) {
+		return t.fx[i].tail
+	}
+	return 0.3
 }
 
 // leadIn is how early a phrase appears: up to 2 s, but never before the
@@ -211,23 +226,23 @@ func (l *Lyrics) Draw(dst *ebiten.Image, now, cx float64, tick int) {
 	y := l.Y
 	if l.Opts.Backing == "above" {
 		for _, t := range backing {
-			t.draw(dst, now, cx, y, tick)
+			t.draw(dst, now, cx, y, tick, l.Beat)
 			y += t.rowHeight() + lyricRowGap
 		}
-		lead.draw(dst, now, cx, y, tick)
+		lead.draw(dst, now, cx, y, tick, l.Beat)
 		return
 	}
-	lead.draw(dst, now, cx, y, tick)
+	lead.draw(dst, now, cx, y, tick, l.Beat)
 	y += lead.rowHeight() + lyricRowGap
 	for _, t := range backing {
-		t.draw(dst, now, cx, y, tick)
+		t.draw(dst, now, cx, y, tick, l.Beat)
 		y += t.rowHeight() + lyricRowGap
 	}
 }
 
 // draw draws one part's current phrase (and for the lead, the next one) with
 // its band at y.
-func (t *lyricTrack) draw(dst *ebiten.Image, now, cx, y float64, tick int) {
+func (t *lyricTrack) draw(dst *ebiten.Image, now, cx, y float64, tick int, beat func(float64) float64) {
 	i := t.current(now)
 	if i >= len(t.Phrases) {
 		return
@@ -249,24 +264,21 @@ func (t *lyricTrack) draw(dst *ebiten.Image, now, cx, y float64, tick int) {
 		if t.lead {
 			size = t.nextSize
 		}
+		if i < len(t.fx) && (t.fx[i].hasAny("flyin") || t.fx[i].hasAny("type")) {
+			return // these phrases make their own entrance
+		}
 		ln := t.line(i, size, tick)
 		a := 0.45 * clamp01((now-(show-1.0))/0.3)
 		drawBand(dst, cx, y, ln.w, ln.h, 0, a)
 		drawLine(dst, ln, cx-ln.w/2, y+size*0.4*b2f(t.lead), unsung, a, -1)
 		return
 	}
-	fade := clamp01((now-show)/0.25) * clamp01((p.End+0.3-now)/0.3)
+	fade := clamp01((now-show)/0.25) * clamp01((p.End+t.tail(i)-now)/0.3)
 	cur := t.line(i, t.size, tick)
 	var next *lyricLine
 	if t.lead && i+1 < len(t.Phrases) && t.Phrases[i+1].Start-t.leadIn(i+1) < p.End+4 {
 		next = t.line(i+1, t.nextSize, tick)
 	}
-	bw, nh := cur.w, 0.0
-	if next != nil {
-		bw, nh = math.Max(bw, next.w), next.h+6
-	}
-	drawBand(dst, cx, y, bw, cur.h, nh, 0.55*fade)
-
 	// how far the highlight has swept
 	hx := 0.0
 	for j, s := range p.Syllables {
@@ -279,6 +291,15 @@ func (t *lyricTrack) draw(dst *ebiten.Image, now, cx, y float64, tick int) {
 		}
 		hx = cur.start[j] + (cur.end[j]-cur.start[j])*clamp01((now-s.Time)/d)
 	}
+	if i < len(t.fx) && t.fx[i].any {
+		t.drawFX(dst, i, cur, now, cx, y, fade, hx, unsung, beat, next)
+		return
+	}
+	bw, nh := cur.w, 0.0
+	if next != nil {
+		bw, nh = math.Max(bw, next.w), next.h+6
+	}
+	drawBand(dst, cx, y, bw, cur.h, nh, 0.55*fade)
 	x := cx - cur.w/2
 	drawLine(dst, cur, x, y, unsung, 0.5*fade, -1)
 	if hx > 0 {

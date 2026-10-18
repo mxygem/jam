@@ -86,7 +86,21 @@ func backingSize(v float64) float64 {
 
 // lyricOpts are the saved lyric display choices.
 func lyricOpts(st *config.Settings) render.LyricOpts {
-	return render.LyricOpts{Backing: st.BackingVocals, BackingScale: backingSize(st.BackingSize)}
+	fx := st.LyricFx
+	if fx == "" {
+		fx = "full"
+	}
+	return render.LyricOpts{Backing: st.BackingVocals, BackingScale: backingSize(st.BackingSize), Effects: fx}
+}
+
+func lyricFxLabel(v string) string {
+	switch v {
+	case "calm":
+		return "Calm"
+	case "off":
+		return "Off"
+	}
+	return "Full"
 }
 
 func sign(d int) int {
@@ -210,6 +224,9 @@ func newSettingsMenu(a *App, inSong bool) *settingsMenu {
 		{Label: "Backing vocal size", Hint: "Text size of backing parts compared with the lead", Range: true,
 			Value:  func() string { return fmt.Sprintf("%.0f%%", backingSize(st.BackingSize)*100) },
 			Adjust: func(d int) { st.BackingSize = clampf(backingSize(st.BackingSize)+float64(d)*0.05, 0.5, 1) }},
+		{Label: "Lyric effects", Hint: "Animated lyrics when a chart asks for them. Calm drops shaking, glitching, flying and exploding text",
+			Value:  func() string { return lyricFxLabel(st.LyricFx) },
+			Adjust: func(d int) { st.LyricFx = cycleString(render.LyricFxModes, lyricOpts(st).Effects, d) }},
 	}
 
 	background := []Item{

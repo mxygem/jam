@@ -78,3 +78,55 @@ func TestLyricsParts(t *testing.T) {
 		}
 	}
 }
+
+// TestLyricFX draws a phrase with each effect through its whole life, in every
+// effects setting, and checks what each setting keeps.
+func TestLyricFX(t *testing.T) {
+	var ph []chart.LyricPhrase
+	at := 1.0
+	for _, name := range chart.FXNames {
+		arg := name
+		if name == "color" {
+			arg = "color:#00ff00"
+		}
+		fx, ok := chart.ParseFX(arg)
+		if !ok {
+			t.Fatalf("parse %s", arg)
+		}
+		f := []chart.FX{fx}
+		ph = append(ph, chart.LyricPhrase{Start: at, End: at + 2, Syllables: []chart.Syllable{
+			{Time: at, Text: "Hel", Join: true, FX: f}, {Time: at + 0.4, Text: "lo", FX: f}, {Time: at + 1, Text: "<b>world</b>", FX: f}}})
+		at += 4
+	}
+	parts := []chart.VocalPart{{Name: "Lead", Lead: true, Phrases: ph},
+		{Name: "Backing", Phrases: []chart.LyricPhrase{{Start: 1.5, End: 3, Syllables: []chart.Syllable{
+			{Time: 1.5, Text: "oh", FX: []chart.FX{{Name: "wave"}}}}}}}}
+	dst := ebiten.NewImage(ScreenW, ScreenH)
+	for _, mode := range LyricFxModes {
+		opts := DefaultLyricOpts()
+		opts.Effects = mode
+		l := NewLyrics(parts, 64, opts)
+		l.Beat = func(now float64) float64 { return now - float64(int(now)) }
+		lead := l.tracks[0]
+		for i, name := range chart.FXNames {
+			want := mode == "full" || (mode == "calm" && !calmDrops[name])
+			if got := lead.fx[i].any; got != want {
+				t.Errorf("%s: %s kept = %v, want %v", mode, name, got, want)
+			}
+		}
+		for tick, now := 0, 0.0; now < at+2; tick, now = tick+1, now+0.05 {
+			l.Draw(dst, now, ScreenW/2, tick)
+		}
+	}
+	// An exploding phrase stays up after its end so the sparks can finish.
+	l := NewLyrics(parts, 64, DefaultLyricOpts())
+	ex := 0
+	for i, n := range chart.FXNames {
+		if n == "explode" {
+			ex = i
+		}
+	}
+	if got := l.tracks[0].current(ph[ex].End + 1); got != ex {
+		t.Errorf("explode phrase should still show 1 s after it ends, current = %d", got)
+	}
+}

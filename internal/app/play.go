@@ -96,7 +96,7 @@ func NewPlay(a *App, s *chart.Song, c *chart.Chart, t *chart.Track, au *playback
 	p.hud = &render.HUD{Highway: p.hw}
 	if set.ShowLyrics {
 		p.lyrOpts = lyricOpts(set)
-		p.lyr = render.NewLyrics(c.Vocals, 64, p.lyrOpts)
+		p.lyr = p.newLyrics(p.lyrOpts)
 	}
 	p.audioOff = set.AudioOffsetMs / 1000
 	p.videoOff = set.VideoOffsetMs / 1000
@@ -471,7 +471,7 @@ func (p *Play) applyLive(a *App) {
 		p.lyr = nil
 	case p.lyr == nil || opts != p.lyrOpts:
 		p.lyrOpts = opts
-		p.lyr = render.NewLyrics(p.c.Vocals, 64, opts)
+		p.lyr = p.newLyrics(opts)
 	}
 	p.au.SetMaster(set.Volume)
 	p.audioOff = set.AudioOffsetMs / 1000
@@ -622,4 +622,18 @@ func errorSound(mode string, r engine.Result) bool {
 		return r == engine.Overstrum || r == engine.Overhit || r == engine.Miss
 	}
 	return false
+}
+
+// newLyrics builds the lyric display for the chart, with the beat that lyric
+// effects pulse to.
+func (p *Play) newLyrics(opts render.LyricOpts) *render.Lyrics {
+	l := render.NewLyrics(p.c.Vocals, 64, opts)
+	if l != nil && p.c.Tempo != nil {
+		tm := p.c.Tempo
+		l.Beat = func(now float64) float64 {
+			b := tm.Ticks(now) / float64(tm.Resolution)
+			return b - math.Floor(b)
+		}
+	}
+	return l
 }

@@ -119,16 +119,19 @@ type jamProject struct {
 type jamVocalPart struct {
 	Name    string      `json:"name"`
 	Lead    bool        `json:"lead"`
+	FX      []string    `json:"fx"`
 	Phrases []jamPhrase `json:"phrases"`
 }
 
 type jamPhrase struct {
-	Start     int64 `json:"start"`
-	End       int64 `json:"end"`
+	Start     int64    `json:"start"`
+	End       int64    `json:"end"`
+	FX        []string `json:"fx"`
 	Syllables []struct {
-		T    int64  `json:"t"`
-		Text string `json:"text"`
-		Join bool   `json:"join"`
+		T    int64    `json:"t"`
+		Text string   `json:"text"`
+		Join bool     `json:"join"`
+		FX   []string `json:"fx"`
 	} `json:"syllables"`
 }
 
@@ -172,16 +175,22 @@ func loadProjectVocals(path string, ini *SongIni) ([]VocalPart, error) {
 		if vp.Name == "" {
 			vp.Name = fmt.Sprintf("Part %d", i+1)
 		}
+		partFX := ParseFXList(rp.FX)
 		for _, p := range rp.Phrases {
 			lp := LyricPhrase{Start: tm.Seconds(p.Start), End: tm.Seconds(p.End)}
+			var sc fxScanner
 			for _, s := range p.Syllables {
-				text, join, ok := cleanSyllable(s.Text)
+				// Inline <fx> tags come off before the lyric symbols are read.
+				raw, inline := sc.take(s.Text)
+				text, join, ok := cleanSyllable(raw)
 				if !ok {
 					continue
 				}
-				lp.Syllables = append(lp.Syllables, Syllable{Time: tm.Seconds(s.T), Text: text, Join: join || s.Join})
+				lp.Syllables = append(lp.Syllables, Syllable{Time: tm.Seconds(s.T), Text: text, Join: join || s.Join,
+					FX: mergeFX(inline, ParseFXList(s.FX)...)})
 			}
 			if len(lp.Syllables) > 0 {
+				withFX([]LyricPhrase{lp}, mergeFX(partFX, ParseFXList(p.FX)...))
 				vp.Phrases = append(vp.Phrases, lp)
 			}
 		}

@@ -19,9 +19,10 @@ Working now:
 - Latency calibration: audio (tap to a click track) and video (tap to a visual metronome).
 - Recording and analysis: every run is saved with all inputs and judgments. The results screen shows a timing histogram, early/late bias, accuracy per section, accuracy per note type, every miss with a reason ("wrong frets: held --Y--, needed -R---", "120 ms too late", "hit the tom, chart has a cymbal"), sustains held, streak breaks, and tips. Runs re-simulate exactly from their inputs.
 - Appearance: Settings > Appearance picks a theme (Jam, Neon, Arcade, Chrome, Pastel, Midnight, Gold, Glass, Color-blind friendly), a note material (classic, glossy, matte, metal, glass, neon, flat), rim, note size and highway style, and edits every color one by one (hue, saturation, brightness, quick picks or a hex code) while a song plays in a live preview. Changes make a custom look, which can be saved as a theme file to keep or share.
+- Lyrics: karaoke-style lines from `.chart` lyrics, `PART VOCALS` and `HARM1`-`HARM3`, or any number of vocal parts from a `chart.jam.json` project file next to the chart. Backing parts show below or above the lead, each in its own color. Charts can animate lyrics (see Lyric effects below); Settings > Highway and visuals > Lyric effects picks Full, Calm or Off.
 - Clone Hero song folders are imported automatically from Clone Hero's `settings.ini` on first run. A built-in demo song is always available.
 
-Planned: custom art (highway and gem images), vocals, `.sng` packages, auto-charting from audio.
+Planned: custom art (highway and gem images), singing with a microphone, `.sng` packages, auto-charting from audio.
 
 ## Build
 
@@ -57,6 +58,37 @@ jam probe [seconds]                   print raw XInput and MIDI events with time
 jam check [folder...]                 parse every chart in your library and run each track through the engine
 jam demo [folder]                     write the demo song
 ```
+
+## Lyric effects
+
+Charts made for jam can animate their lyrics. Effects go inline in any lyric, and a tag can open in one syllable and close in a later one:
+
+```
+lyric <fx=shake:2>BURN      lyric IT      lyric DOWN</fx>
+lyric <fx=color:#ff4d6d,glow>red</fx>
+```
+
+In `chart.jam.json` they also go in `fx` lists on a syllable, a phrase or a whole vocal part (`"fx": ["wave", "zoom:2"]`); a syllable's own list wins over its phrase's, which wins over its part's. Other games don't know these tags, so keep them to charts meant for jam.
+
+| Effect | What it does |
+|---|---|
+| `color:#hex` | sung color for the syllable |
+| `rainbow` | hue drifts across the sung letters |
+| `glow[:size]` | halo around sung letters |
+| `whisper` | smaller, italic, faded |
+| `pulse` | the line breathes on the beat |
+| `bounce` | each syllable hops as it's sung |
+| `wave[:height]` | letters ride a slow wave |
+| `shake[:n]` | letters jitter while sung |
+| `zoom[:scale]` | the syllable pops big on its hit |
+| `hold` | a held syllable's letters spread over the note |
+| `glitch` | color channels split while sung |
+| `type` | letters appear only as they're sung |
+| `flyin` | letters drop into place before the phrase |
+| `explode` | the syllable bursts into sparks after it's sung |
+| `takeover` | the phrase fills the middle of the screen |
+
+Calm leaves out shake, glitch, explode, wave, fly in and takeover.
 
 ## Where things live
 
