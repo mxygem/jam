@@ -66,6 +66,8 @@ type App struct {
 	FFmpeg   string
 	NoAudio  bool // JAM_NOAUDIO=1: no sound device (headless tests)
 
+	wall wallClock // time of day, bottom right
+
 	Index   *library.Index
 	Scores  *replay.Scores
 	Art     *artCache
@@ -475,6 +477,7 @@ func (a *App) Draw(screen *ebiten.Image) {
 		screen.DrawImage(a.canvas, op)
 		render.SetStage(nil, 0, 0)
 	}
+	a.wall.Draw(screen)
 	if a.wantShot {
 		a.TakeScreenshot(screen)
 	}
