@@ -67,6 +67,7 @@ type App struct {
 	NoAudio  bool // JAM_NOAUDIO=1: no sound device (headless tests)
 
 	Index   *library.Index
+	Scans   *chart.ScanCache // what the last library scan found, so the list shows at once
 	Scores  *replay.Scores
 	Art     *artCache
 	Queue   *playlist.Playlist // the playlist being built or played
@@ -172,6 +173,7 @@ func Run(opts Options) error {
 	log.Printf("library folders: %v, ffmpeg: %q, audio: %v", settings.LibraryPaths, a.FFmpeg, !a.NoAudio)
 
 	a.Index = library.Open(filepath.Join(config.Dir(), "library.json.gz"))
+	a.Scans = chart.NewScanCache(filepath.Join(config.Dir(), "songs.json.gz"))
 	a.Scores = replay.LoadScores(filepath.Join(config.Dir(), "scores.json"), config.RunsDir())
 	a.Art = newArtCache()
 	a.Queue = &playlist.Playlist{}
@@ -252,7 +254,10 @@ func (a *App) Library() ([]*chart.Song, bool) {
 	return a.library, a.scanning
 }
 
-// RescanLibrary scans the library folders in the background.
+// RescanLibrary scans the library folders in the background. The first scan
+// of a run starts by showing the songs the last scan found, so the song list
+// has something in it while the folders are read again; the finished scan
+// replaces them.
 func (a *App) RescanLibrary() {
 	a.libMu.Lock()
 	if a.scanning {
@@ -260,6 +265,7 @@ func (a *App) RescanLibrary() {
 		return
 	}
 	a.scanning = true
+	first := a.library == nil
 	paths := append([]string(nil), a.Settings.LibraryPaths...)
 	a.libMu.Unlock()
 	if !contains(paths, config.SongsDir()) {
@@ -267,21 +273,37 @@ func (a *App) RescanLibrary() {
 	}
 	go func() {
 		start := time.Now()
-		songs := chart.ScanLibrary(paths)
-		byDir := make(map[string]*chart.Song, len(songs))
-		for _, s := range songs {
-			byDir[dirKey(s.Dir)] = s
+		if first {
+			if cached := a.Scans.Songs(paths); len(cached) > 0 {
+				a.setLibrary(cached, true)
+				log.Printf("library: %d songs from cache in %.1fs", len(cached), time.Since(start).Seconds())
+			}
 		}
-		a.libMu.Lock()
-		a.library = songs
-		a.byDir = byDir
-		a.scanning = false
-		a.libMu.Unlock()
-		log.Printf("library: %d songs found in %.1fs", len(songs), time.Since(start).Seconds())
+		scanStart := time.Now()
+		songs := chart.ScanLibraryWith(paths, chart.ScanOptions{Cache: a.Scans})
+		a.setLibrary(songs, false)
+		log.Printf("library: %d songs found in %.1fs", len(songs), time.Since(scanStart).Seconds())
 		if a.Index != nil {
 			a.Index.Update(songs)
 		}
+		if err := a.Scans.Save(songs); err != nil {
+			log.Printf("library: saving scan cache: %v", err)
+		}
 	}()
+}
+
+// setLibrary publishes a list of songs; scanning says whether a scan is
+// still going.
+func (a *App) setLibrary(songs []*chart.Song, scanning bool) {
+	byDir := make(map[string]*chart.Song, len(songs))
+	for _, s := range songs {
+		byDir[dirKey(s.Dir)] = s
+	}
+	a.libMu.Lock()
+	a.library = songs
+	a.byDir = byDir
+	a.scanning = scanning
+	a.libMu.Unlock()
 }
 
 func dirKey(dir string) string { return strings.ToLower(filepath.Clean(dir)) }

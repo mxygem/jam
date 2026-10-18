@@ -29,7 +29,9 @@ func ReadSongIni(path string) (*SongIni, error) {
 func ParseSongIni(r io.Reader) (*SongIni, error) {
 	ini := &SongIni{Values: map[string]string{}}
 	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	// Most files are a few hundred bytes. Start small (a scan parses tens of
+	// thousands of them) and let a very long line grow the buffer to the cap.
+	sc.Buffer(make([]byte, 4*1024), 4*1024*1024)
 	section := ""
 	sawSection := false
 	first := true

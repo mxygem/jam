@@ -61,6 +61,8 @@ type Song struct {
 
 	Stems    map[string]string // stem name -> file path
 	CoverArt string
+
+	stamp scanStamp // what the scan saw, to tell later whether the folder changed
 }
 
 // ID is a stable identifier for the song folder.
@@ -120,8 +122,22 @@ func LoadSongFolder(dir string) (*Song, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Song{Dir: dir, Stems: map[string]string{}}
+	s := loadSong(dir, "", entries, nil)
+	if s == nil {
+		return nil, ErrNoChart
+	}
+	return s, nil
+}
+
+// loadSong builds a Song from a folder's directory listing, or returns nil if
+// the folder has no chart. When cache holds an entry for the folder whose
+// song.ini and chart file have the same size and modification time, the
+// metadata is taken from it instead of reading and parsing those files again.
+// The file lists (stems, cover art) always come from entries.
+func loadSong(dir, root string, entries []fs.DirEntry, cache *ScanCache) *Song {
+	s := &Song{Dir: dir, Root: root, Stems: map[string]string{}}
 	var charts []string
+	var iniName string
 	stemExt := map[string]int{}
 	for _, e := range entries {
 		if e.IsDir() {
@@ -133,9 +149,7 @@ func LoadSongFolder(dir string) (*Song, error) {
 		base := strings.TrimSuffix(lower, ext)
 		switch {
 		case lower == "song.ini":
-			if ini, err := ReadSongIni(filepath.Join(dir, name)); err == nil {
-				s.Ini = ini
-			}
+			iniName = name
 		case ext == ".chart" || lower == "notes.mid":
 			charts = append(charts, name)
 		case stemNames[base]:
@@ -154,9 +168,10 @@ func LoadSongFolder(dir string) (*Song, error) {
 		}
 	}
 	if len(charts) == 0 {
-		return nil, ErrNoChart
+		return nil
 	}
-	s.ChartPath = filepath.Join(dir, pickChart(charts))
+	chartName := pickChart(charts)
+	s.ChartPath = filepath.Join(dir, chartName)
 	// Numbered stems replace the single stem of the same instrument.
 	if _, ok := s.Stems[StemDrums1]; ok {
 		delete(s.Stems, StemDrums)
@@ -164,8 +179,23 @@ func LoadSongFolder(dir string) (*Song, error) {
 	if _, ok := s.Stems[StemVocals1]; ok {
 		delete(s.Stems, StemVocals)
 	}
+	s.stamp = stampOf(entries, iniName, chartName)
+	if rec := cache.lookup(dir); rec != nil && s.stamp.matches(rec) {
+		rec.apply(s)
+		s.stamp.reused = rec.Root == root
+		// The folder's own modification time moves whenever its files do.
+		if st, err := os.Stat(dir); err == nil {
+			s.Added = st.ModTime()
+		}
+		return s
+	}
+	if iniName != "" {
+		if ini, err := ReadSongIni(filepath.Join(dir, iniName)); err == nil {
+			s.Ini = ini
+		}
+	}
 	s.fillMeta()
-	return s, nil
+	return s
 }
 
 func extRank(ext string) int {
@@ -259,49 +289,4 @@ func (s *Song) fillMeta() {
 	if s.Name == "" {
 		s.Name = filepath.Base(s.Dir)
 	}
-}
-
-// ScanLibrary walks the given roots and returns every song folder found,
-// sorted by artist then name. Errors in individual folders are skipped.
-func ScanLibrary(roots []string) []*Song {
-	var songs []*Song
-	seen := map[string]bool{}
-	for _, root := range roots {
-		if root == "" {
-			continue
-		}
-		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				if d != nil && d.IsDir() {
-					return fs.SkipDir
-				}
-				return nil
-			}
-			if !d.IsDir() {
-				return nil
-			}
-			if strings.HasPrefix(d.Name(), ".") && path != root {
-				return fs.SkipDir
-			}
-			key := strings.ToLower(filepath.Clean(path))
-			if seen[key] {
-				return fs.SkipDir
-			}
-			s, err := LoadSongFolder(path)
-			if err == nil {
-				seen[key] = true
-				s.Root = root
-				songs = append(songs, s)
-			}
-			return nil
-		})
-	}
-	sort.SliceStable(songs, func(i, j int) bool {
-		a, b := strings.ToLower(songs[i].Artist), strings.ToLower(songs[j].Artist)
-		if a != b {
-			return a < b
-		}
-		return strings.ToLower(songs[i].Name) < strings.ToLower(songs[j].Name)
-	})
-	return songs
 }

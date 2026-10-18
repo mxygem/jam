@@ -219,7 +219,9 @@ func (s *SongSelect) jumpGroup(d int) {
 func (s *SongSelect) Update(a *App) error {
 	// library and index progress
 	if s.scanning {
-		if _, scanning := a.Library(); !scanning {
+		// Refresh when the scan ends, or when the saved list arrives while
+		// the real scan is still going and this screen has nothing yet.
+		if songs, scanning := a.Library(); !scanning || (len(s.all) == 0 && len(songs) > 0) {
 			s.refresh(a)
 		}
 	}
