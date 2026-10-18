@@ -188,6 +188,16 @@ func lyricsFromEvents(tm *TempoMap, events []TextEvent) []LyricPhrase {
 // lyricsFromVocals reads a PART VOCALS track: lyric/text meta events at the
 // sung notes, phrases from notes 105/106.
 func lyricsFromVocals(tm *TempoMap, t smfTrack) []LyricPhrase {
+	ph, _ := vocalPhrases(tm, t, nil, false)
+	return ph
+}
+
+// vocalPhrases reads the lyrics of a vocal track (PART VOCALS or HARM1-3).
+// Phrases come from notes 105/106; a harmony track without its own phrase
+// markers uses fallback (Rock Band's HARM3 follows HARM2's phrases). In
+// harmony tracks a lyric containing "$" is hidden: it is sung with another
+// part and shown there. It returns the phrases and the spans it used.
+func vocalPhrases(tm *TempoMap, t smfTrack, fallback []span, harmony bool) ([]LyricPhrase, []span) {
 	var lyrics []rawLyric
 	for _, e := range t.events {
 		if !e.isText() || (e.meta != 0x05 && e.meta != 0x01) {
@@ -196,6 +206,9 @@ func lyricsFromVocals(tm *TempoMap, t smfTrack) []LyricPhrase {
 		text := string(e.data)
 		if strings.HasPrefix(strings.TrimSpace(text), "[") {
 			continue // [play], [idle] and other animation events
+		}
+		if harmony && strings.Contains(text, "$") {
+			continue
 		}
 		lyrics = append(lyrics, rawLyric{e.tick, text})
 	}
@@ -210,5 +223,8 @@ func lyricsFromVocals(tm *TempoMap, t smfTrack) []LyricPhrase {
 	}
 	notes := pairNotes(t.events)
 	spans := append(notesToSpans(notes, 105), notesToSpans(notes, 106)...)
-	return buildLyrics(tm, dedup, spans)
+	if len(spans) == 0 {
+		spans = append([]span(nil), fallback...)
+	}
+	return buildLyrics(tm, dedup, spans), spans
 }

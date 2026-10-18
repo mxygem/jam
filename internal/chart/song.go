@@ -56,6 +56,7 @@ type Song struct {
 	PreviewMs                                 int64
 	AlbumTrack                                int
 	Root                                      string    // library folder it was found under
+	ProjectErr                                error     // set by LoadChart when chart.jam.json couldn't be read
 	Added                                     time.Time // when the folder was created or last changed
 
 	Stems    map[string]string // stem name -> file path
@@ -76,12 +77,23 @@ func (s *Song) Title() string {
 	return s.Artist + " - " + s.Name
 }
 
-// LoadChart parses the song's chart file.
+// LoadChart parses the song's chart file. Vocal parts from a jam project
+// file in the same folder (chart.jam.json) replace the chart's own lyrics.
 func (s *Song) LoadChart() (*Chart, error) {
+	var c *Chart
+	var err error
 	if strings.EqualFold(filepath.Ext(s.ChartPath), ".mid") {
-		return LoadMidiChart(s.ChartPath, s.Ini)
+		c, err = LoadMidiChart(s.ChartPath, s.Ini)
+	} else {
+		c, err = LoadDotChart(s.ChartPath, s.Ini)
 	}
-	return LoadDotChart(s.ChartPath, s.Ini)
+	if err != nil {
+		return nil, err
+	}
+	if perr := applyProjectVocals(c, s.Dir, s.Ini); perr != nil {
+		s.ProjectErr = perr
+	}
+	return c, nil
 }
 
 // ChartHash is the SHA-1 of the chart file, used to tie recordings to the

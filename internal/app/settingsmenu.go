@@ -8,6 +8,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 
 	"github.com/mxygem/jam/internal/action"
+	"github.com/mxygem/jam/internal/config"
 	"github.com/mxygem/jam/internal/input"
 	"github.com/mxygem/jam/internal/render"
 )
@@ -54,6 +55,39 @@ func (m *settingsMenu) startTyping(title, value string, done func(string)) {
 }
 
 func clampf(v, lo, hi float64) float64 { return math.Max(lo, math.Min(hi, v)) }
+
+// cycleString steps through opts from cur by d (wrapping); an unknown cur starts at opts[0].
+func cycleString(opts []string, cur string, d int) string {
+	i := 0
+	for j, o := range opts {
+		if o == cur {
+			i = j
+		}
+	}
+	return opts[((i+sign(d))%len(opts)+len(opts))%len(opts)]
+}
+
+func backingLabel(v string) string {
+	switch v {
+	case "above":
+		return "Above lead"
+	case "off":
+		return "Hidden"
+	}
+	return "Below lead"
+}
+
+func backingSize(v float64) float64 {
+	if v <= 0 {
+		return render.DefaultLyricOpts().BackingScale
+	}
+	return v
+}
+
+// lyricOpts are the saved lyric display choices.
+func lyricOpts(st *config.Settings) render.LyricOpts {
+	return render.LyricOpts{Backing: st.BackingVocals, BackingScale: backingSize(st.BackingSize)}
+}
 
 func sign(d int) int {
 	switch {
@@ -170,6 +204,12 @@ func newSettingsMenu(a *App, inSong bool) *settingsMenu {
 			Value: func() string { return onOff(st.ShowTiming) }, Adjust: func(int) { st.ShowTiming = !st.ShowTiming }},
 		{Label: "Show lyrics", Hint: "Karaoke-style lyrics across the top when a chart has them",
 			Value: func() string { return onOff(st.ShowLyrics) }, Adjust: func(int) { st.ShowLyrics = !st.ShowLyrics }},
+		{Label: "Backing vocals", Hint: "Harmony and backing parts, each in its own color, when a chart has them",
+			Value:  func() string { return backingLabel(st.BackingVocals) },
+			Adjust: func(d int) { st.BackingVocals = cycleString(render.BackingPlacements, st.BackingVocals, d) }},
+		{Label: "Backing vocal size", Hint: "Text size of backing parts compared with the lead", Range: true,
+			Value:  func() string { return fmt.Sprintf("%.0f%%", backingSize(st.BackingSize)*100) },
+			Adjust: func(d int) { st.BackingSize = clampf(backingSize(st.BackingSize)+float64(d)*0.05, 0.5, 1) }},
 	}
 
 	background := []Item{

@@ -14,10 +14,11 @@ func TestLyricsTiming(t *testing.T) {
 		{Start: 12.5, End: 14, Syllables: []chart.Syllable{{Time: 12.5, Text: "again"}}},
 		{Start: 30, End: 31, Syllables: []chart.Syllable{{Time: 30, Text: "later"}}},
 	}
-	if NewLyrics(nil, 0) != nil {
+	if NewLyrics(nil, 0, DefaultLyricOpts()) != nil {
 		t.Error("no phrases should mean no lyrics view")
 	}
-	l := NewLyrics(ph, 64)
+	lv := NewLyrics([]chart.VocalPart{{Name: "Lead", Lead: true, Phrases: ph}}, 64, DefaultLyricOpts())
+	l := lv.tracks[0]
 	for _, c := range []struct {
 		now  float64
 		want int
@@ -47,6 +48,33 @@ func TestLyricsTiming(t *testing.T) {
 	}
 	dst := ebiten.NewImage(ScreenW, ScreenH)
 	for tick, now := range []float64{0, 8.5, 9, 10.2, 10.45, 11.5, 12.3, 13, 28.5, 30.5, 50} {
-		l.Draw(dst, now, ScreenW/2, tick)
+		lv.Draw(dst, now, ScreenW/2, tick)
+	}
+}
+
+func TestLyricsParts(t *testing.T) {
+	lead := []chart.LyricPhrase{{Start: 1, End: 3, Syllables: []chart.Syllable{{Time: 1, Text: "ah"}, {Time: 2, Text: "ah"}}}}
+	back := []chart.LyricPhrase{{Start: 1.5, End: 3.5, Syllables: []chart.Syllable{{Time: 1.5, Text: "I'm"}, {Time: 2, Text: "in"}, {Time: 2.2, Text: "a"}, {Time: 2.4, Text: "band"}}}}
+	parts := []chart.VocalPart{{Name: "Lead", Lead: true, Phrases: lead}, {Name: "Backing", Phrases: back}, {Name: "Empty"}}
+	l := NewLyrics(parts, 64, DefaultLyricOpts())
+	if l.Parts() != 2 {
+		t.Fatalf("parts shown = %d, want 2 (empty part skipped)", l.Parts())
+	}
+	if l.tracks[1].color != PartColors[0] || l.tracks[1].size >= l.tracks[0].size {
+		t.Errorf("backing part should be smaller and in the first part color: %+v", l.tracks[1])
+	}
+	if NewLyrics(parts, 64, LyricOpts{Backing: "off"}).Parts() != 1 {
+		t.Error("backing off should show the lead only")
+	}
+	// Only backing lyrics (no lead phrases) still draws.
+	if NewLyrics(parts[1:2], 64, DefaultLyricOpts()).Parts() != 1 {
+		t.Error("a lone part is shown as the lead")
+	}
+	dst := ebiten.NewImage(ScreenW, ScreenH)
+	for _, opts := range []LyricOpts{DefaultLyricOpts(), {Backing: "above", BackingScale: 1}} {
+		l := NewLyrics(parts, 64, opts)
+		for tick, now := range []float64{0, 1.2, 1.7, 2.3, 3.2, 5} {
+			l.Draw(dst, now, ScreenW/2, tick)
+		}
 	}
 }

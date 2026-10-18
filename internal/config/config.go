@@ -36,7 +36,9 @@ type Settings struct {
 	LeadIn         float64              `json:"lead_in"` // seconds before the first note
 	HitFx          string               `json:"hit_fx"`  // hit effects: full, reduced, off
 	ShowLyrics     bool                 `json:"show_lyrics"`
-	HighwayBounce  float64              `json:"highway_bounce"` // 0..1: open notes and kicks bounce the highway
+	BackingVocals  string               `json:"backing_vocals"`     // harmony/backing parts: below, above, off
+	BackingSize    float64              `json:"backing_vocal_size"` // relative to the lead's text
+	HighwayBounce  float64              `json:"highway_bounce"`     // 0..1: open notes and kicks bounce the highway
 	// Background is "" (built in), "random", or an image path relative to
 	// the customs folder.
 	Background      string  `json:"background"`
@@ -108,6 +110,8 @@ func Default() *Settings {
 		LeadIn:          2.5,
 		HitFx:           "full",
 		ShowLyrics:      true,
+		BackingVocals:   "below",
+		BackingSize:     0.75,
 		HighwayBounce:   0.3,
 		BackgroundDim:   0.45,
 		BackgroundMenus: true,

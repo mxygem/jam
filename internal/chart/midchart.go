@@ -138,6 +138,7 @@ func ParseMidiChart(b []byte, ini *SongIni) (*Chart, error) {
 		spNote = int(v)
 	}
 
+	vocalTracks := map[string]smfTrack{}
 	for _, t := range f.tracks {
 		name := strings.ToUpper(strings.TrimSpace(t.name))
 		if name == "EVENTS" {
@@ -153,8 +154,8 @@ func ParseMidiChart(b []byte, ini *SongIni) (*Chart, error) {
 			}
 			continue
 		}
-		if name == "PART VOCALS" {
-			c.Lyrics = lyricsFromVocals(tm, t)
+		if name == "PART VOCALS" || name == "HARM1" || name == "HARM2" || name == "HARM3" {
+			vocalTracks[name] = t
 			continue
 		}
 		inst, ok := midiTrackInstruments[name]
@@ -171,8 +172,9 @@ func ParseMidiChart(b []byte, ini *SongIni) (*Chart, error) {
 			parseMidiGuitar(c, tm, inst, t, notes, hopo, cutoff, spNote)
 		}
 	}
-	if len(c.Lyrics) == 0 {
-		c.Lyrics = lyricsFromEvents(tm, c.Events)
+	c.setVocals(midiVocalParts(tm, vocalTracks))
+	if len(c.Vocals) == 0 {
+		c.setVocals(leadPart(lyricsFromEvents(tm, c.Events)))
 	}
 	return c, nil
 }

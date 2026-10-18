@@ -311,7 +311,12 @@ type Chart struct {
 	Events     []TextEvent
 	Tracks     map[TrackKey]*Track
 	Meta       map[string]string // [Song] section of a .chart, lower-cased keys
-	Lyrics     []LyricPhrase     // vocals lyrics by line, if the chart has them
+	// Vocals is every vocal part that has lyrics: the lead first (when there
+	// is one), then harmony and backing parts in chart order.
+	Vocals []VocalPart
+	// Lyrics is the lead part's phrases (Vocals[0]), for callers that only
+	// ever show one line.
+	Lyrics []LyricPhrase
 }
 
 // Track returns the track for key or nil.

@@ -26,19 +26,20 @@ const engineLag = 0.040
 
 // Play is the gameplay screen.
 type Play struct {
-	song  *chart.Song
-	c     *chart.Chart
-	t     *chart.Track
-	au    *playback.Song
-	eng   engine.Engine
-	m     *input.Mapper
-	rec   *replay.Recorder
-	hw    *render.Highway
-	hud   *render.HUD
-	lyr   *render.Lyrics
-	frame render.FrameState
-	hs    render.HUDState
-	drums bool
+	song    *chart.Song
+	c       *chart.Chart
+	t       *chart.Track
+	au      *playback.Song
+	eng     engine.Engine
+	m       *input.Mapper
+	rec     *replay.Recorder
+	hw      *render.Highway
+	hud     *render.HUD
+	lyr     *render.Lyrics
+	lyrOpts render.LyricOpts // the options lyr was built with
+	frame   render.FrameState
+	hs      render.HUDState
+	drums   bool
 
 	startClock   float64
 	started      bool
@@ -94,7 +95,8 @@ func NewPlay(a *App, s *chart.Song, c *chart.Chart, t *chart.Track, au *playback
 	p.hw = &render.Highway{Cfg: hc}
 	p.hud = &render.HUD{Highway: p.hw}
 	if set.ShowLyrics {
-		p.lyr = render.NewLyrics(c.Lyrics, 64)
+		p.lyrOpts = lyricOpts(set)
+		p.lyr = render.NewLyrics(c.Vocals, 64, p.lyrOpts)
 	}
 	p.audioOff = set.AudioOffsetMs / 1000
 	p.videoOff = set.VideoOffsetMs / 1000
@@ -464,11 +466,12 @@ func (p *Play) applyLive(a *App) {
 	p.frame.Fx = render.ParseFxLevel(set.HitFx)
 	p.frame.Bounce = set.HighwayBounce
 	p.hs.ShowTiming = set.ShowTiming
-	switch {
+	switch opts := lyricOpts(set); {
 	case !set.ShowLyrics:
 		p.lyr = nil
-	case p.lyr == nil:
-		p.lyr = render.NewLyrics(p.c.Lyrics, 64)
+	case p.lyr == nil || opts != p.lyrOpts:
+		p.lyrOpts = opts
+		p.lyr = render.NewLyrics(p.c.Vocals, 64, opts)
 	}
 	p.au.SetMaster(set.Volume)
 	p.audioOff = set.AudioOffsetMs / 1000

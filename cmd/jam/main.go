@@ -167,7 +167,7 @@ func check(args []string) int {
 	insts := map[string]int{}
 	modes := map[string]int{}
 	exts := map[string]int{}
-	bad, lyrics, oddSyl, rated, art := 0, 0, 0, 0, 0
+	bad, lyrics, oddSyl, rated, art, multiVocal := 0, 0, 0, 0, 0, 0
 	start := time.Now()
 	for _, s := range songs {
 		c, err := s.LoadChart()
@@ -175,6 +175,12 @@ func check(args []string) int {
 			bad++
 			fmt.Printf("ERROR %s: %v\n", s.ChartPath, err)
 			continue
+		}
+		if s.ProjectErr != nil {
+			fmt.Printf("WARN  %s: %v (using the chart's own lyrics)\n", s.Dir, s.ProjectErr)
+		}
+		if len(c.Vocals) > 1 {
+			multiVocal++
 		}
 		for _, i := range c.Instruments() {
 			insts[i.String()]++
@@ -235,7 +241,7 @@ func check(args []string) int {
 		}
 		fmt.Printf("%s: %s\n", title, strings.Join(parts, ", "))
 	}
-	fmt.Printf("lyrics in %d charts (%d syllables with leftover symbols), album art in %d folders, %d parts with a Fretwork rating\n", lyrics, oddSyl, art, rated)
+	fmt.Printf("lyrics in %d charts (%d syllables with leftover symbols, %d with more than one vocal part), album art in %d folders, %d parts with a Fretwork rating\n", lyrics, oddSyl, multiVocal, art, rated)
 	printMap("instruments", insts)
 	printMap("drum types", modes)
 	printMap("audio formats", exts)
