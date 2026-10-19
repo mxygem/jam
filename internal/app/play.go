@@ -88,6 +88,9 @@ func NewPlay(a *App, s *chart.Song, c *chart.Chart, t *chart.Track, au *playback
 	p.rec.Rec.AudioOffset = set.AudioOffsetMs
 	p.rec.Rec.VideoOffset = set.VideoOffsetMs
 	p.rec.Rec.Device = deviceSummary(a, fam)
+	if a.Active != nil {
+		p.rec.Rec.Profile, p.rec.Rec.Player = a.Active.ID, a.Active.Name
+	}
 	hc := set.Highway
 	if hc.NearWidth == 0 {
 		hc = render.DefaultHighway()

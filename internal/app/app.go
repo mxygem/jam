@@ -28,6 +28,7 @@ import (
 	"github.com/mxygem/jam/internal/library"
 	"github.com/mxygem/jam/internal/playback"
 	"github.com/mxygem/jam/internal/playlist"
+	"github.com/mxygem/jam/internal/profile"
 	"github.com/mxygem/jam/internal/render"
 	"github.com/mxygem/jam/internal/replay"
 )
@@ -46,6 +47,9 @@ type Options struct {
 	ShotScene  string  // "play" (default), "menu", "results", "wizard", "select"
 	Windowed   bool
 	WindowSize string // "WxH"
+	Players    int    // with Song: a multiplayer song with this many players
+	Mode       string // multiplayer mode for Players
+	Layout     string // multiplayer layout for Players
 }
 
 // Scene is one screen of the game.
@@ -68,12 +72,18 @@ type App struct {
 
 	wall wallClock // time of day, bottom right
 
-	Index   *library.Index
-	Scores  *replay.Scores
-	Art     *artCache
-	Queue   *playlist.Playlist // the playlist being built or played
-	Preview *previewer         // song list audio previews
-	Run     *playRun           // playing through a playlist
+	Index  *library.Index
+	Scores *replay.Scores // the active profile's best scores
+
+	Profiles *profile.Store
+	Active   *profile.Profile // the profile using the menus (see profiles.go)
+	scoresBy map[string]*replay.Scores
+	bindsBy  map[string]*input.Bindings
+	Art      *artCache
+	Queue    *playlist.Playlist // the playlist being built or played
+	Preview  *previewer         // song list audio previews
+	Run      *playRun           // playing through a playlist
+	Band     *Band              // multiplayer: the players playing together
 
 	BG *backgrounds
 
@@ -152,6 +162,7 @@ func Run(opts Options) error {
 		log.Printf("bindings: %v", err)
 	}
 	a := &App{Opts: opts, Settings: settings, Bindings: b, NoAudio: os.Getenv("JAM_NOAUDIO") != ""}
+	a.initProfiles()
 	applyLook(a)
 	if opts.Screenshot != "" && a.NoAudio {
 		a.fixed = true
@@ -174,7 +185,7 @@ func Run(opts Options) error {
 	log.Printf("library folders: %v, ffmpeg: %q, audio: %v", settings.LibraryPaths, a.FFmpeg, !a.NoAudio)
 
 	a.Index = library.Open(filepath.Join(config.Dir(), "library.json.gz"))
-	a.Scores = replay.LoadScores(filepath.Join(config.Dir(), "scores.json"), config.RunsDir())
+	a.Scores = a.ScoresFor(a.Active)
 	a.Art = newArtCache()
 	a.Queue = &playlist.Playlist{}
 	a.BG = newBackgrounds(CustomsDir())
@@ -223,6 +234,9 @@ func (a *App) initialScene() Scene {
 		if !ok {
 			diff = chart.Expert
 		}
+		if a.Opts.Players > 0 {
+			return a.testBand(s, inst, diff)
+		}
 		return NewLoading(a, s, inst, diff)
 	}
 	switch a.Opts.ShotScene {
@@ -230,6 +244,10 @@ func (a *App) initialScene() Scene {
 		return NewWizard(a, input.FamilyGuitar)
 	case "select":
 		return NewSongSelect(a)
+	case "lobby":
+		return NewLobby(a)
+	case "profiles":
+		return NewProfileScene(a)
 	}
 	return NewMainMenu(a)
 }
@@ -321,7 +339,11 @@ func contains(xs []string, s string) bool {
 // SaveBindings persists bindings and refreshes menu navigation.
 func (a *App) SaveBindings() error {
 	a.Menu = input.NewMenuInput(a.Bindings, a.Input.Devices())
-	return a.Bindings.Save(config.BindingsPath())
+	path := config.BindingsPath()
+	if a.Active != nil {
+		path = a.Active.BindingsPath()
+	}
+	return a.Bindings.Save(path)
 }
 
 // guard turns a panic in a scene into a logged error and a trip back to the

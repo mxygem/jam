@@ -134,13 +134,13 @@ func TestScoresIndex(t *testing.T) {
 		}
 		time.Sleep(1100 * time.Millisecond) // run files are named by the second
 	}
-	s := LoadScores(filepath.Join(dir, "scores.json"), runs) // built from the run files
+	s := LoadScores(filepath.Join(dir, "scores.json"), runs, nil) // built from the run files
 	b := s.Best(`e:\charts\song`, "guitar", "expert")
 	if b == nil || b.Score != 8000 || b.Plays != 2 || !b.FullCombo || b.HitRate != 1 {
 		t.Fatalf("best from runs: %+v", b)
 	}
 	s.Add(mk(3000, 40, 5, false)) // worse, ended early
-	s2 := LoadScores(filepath.Join(dir, "scores.json"), runs)
+	s2 := LoadScores(filepath.Join(dir, "scores.json"), runs, nil)
 	b = s2.Best(`E:\charts\Song`, "guitar", "expert")
 	if b.Score != 8000 || b.Plays != 3 {
 		t.Fatalf("after a worse run: %+v", b)

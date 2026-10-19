@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"testing"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -13,7 +14,6 @@ import (
 	"github.com/mxygem/jam/internal/library"
 	"github.com/mxygem/jam/internal/playback"
 	"github.com/mxygem/jam/internal/playlist"
-	"github.com/mxygem/jam/internal/replay"
 )
 
 // harness drives scenes frame by frame with a fake clock and scripted raw
@@ -40,8 +40,9 @@ func newHarness(t *testing.T) *harness {
 	}
 	a := &App{Settings: settings, Bindings: b, NoAudio: true, SFX: playback.NewSFX(nil)}
 	applyLook(a) // tests share the theme: start each from the default
+	a.initProfiles()
 	a.Index = library.Open(filepath.Join(config.Dir(), "library.json.gz"))
-	a.Scores = replay.LoadScores(filepath.Join(config.Dir(), "scores.json"), config.RunsDir())
+	a.Scores = a.ScoresFor(a.Active)
 	a.Art = newArtCache()
 	a.Queue = &playlist.Playlist{}
 	a.BG = newBackgrounds(CustomsDir())
@@ -69,7 +70,7 @@ func (h *harness) frame(evs ...input.RawEvent) {
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				h.t.Fatalf("panic in %T.Update: %v", a.scene, r)
+				h.t.Fatalf("panic in %T.Update: %v\n%s", a.scene, r, debug.Stack())
 			}
 		}()
 		if err := a.step(); err != nil {
@@ -83,7 +84,7 @@ func (h *harness) frame(evs ...input.RawEvent) {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					h.t.Fatalf("panic in %T.Draw: %v", a.scene, r)
+					h.t.Fatalf("panic in %T.Draw: %v\n%s", a.scene, r, debug.Stack())
 				}
 			}()
 			a.scene.Draw(h.screen, a)

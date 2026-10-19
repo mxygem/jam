@@ -47,6 +47,85 @@ type Settings struct {
 	BackgroundMenus bool    `json:"background_menus"` // show the image behind menus too
 	Browse          Browse  `json:"browse"`
 	Look            Look    `json:"look"`
+	Multi           Multi   `json:"multiplayer"`
+
+	// ActiveProfile is the id of the profile using the menus. Its player
+	// settings are the ones in this file (see PlayerSettings).
+	ActiveProfile string `json:"active_profile,omitempty"`
+
+	// OnSave, if set, runs after the settings are written (the app keeps
+	// the active profile in step with them).
+	OnSave func(*Settings) `json:"-"`
+}
+
+// Multi is how local multiplayer is set up.
+type Multi struct {
+	Mode   string `json:"mode"`   // band, h2h (head to head), party
+	Layout string `json:"layout"` // auto, row (one row), rows (two rows)
+}
+
+// PlayerSettings are the settings each player profile keeps for itself:
+// gameplay rules, the highway, effects, error sounds and calibration. The
+// rest (volume, lyrics, theme, library...) is shared by everyone.
+type PlayerSettings struct {
+	Engine         engine.Settings      `json:"engine"`
+	Highway        render.HighwayConfig `json:"highway"`
+	AudioOffsetMs  float64              `json:"audio_offset_ms"`
+	VideoOffsetMs  float64              `json:"video_offset_ms"`
+	ErrorSounds    string               `json:"error_sounds"`
+	ErrorVolume    float64              `json:"error_volume"`
+	ShowTiming     bool                 `json:"show_timing"`
+	MuteOnMiss     bool                 `json:"mute_on_miss"`
+	HitFx          string               `json:"hit_fx"`
+	HighwayBounce  float64              `json:"highway_bounce"`
+	LastInstrument string               `json:"last_instrument,omitempty"`
+	LastDifficulty string               `json:"last_difficulty,omitempty"`
+}
+
+// Player returns the per-player part of the settings.
+func (s *Settings) Player() PlayerSettings {
+	return PlayerSettings{
+		Engine: s.Engine, Highway: s.Highway, AudioOffsetMs: s.AudioOffsetMs, VideoOffsetMs: s.VideoOffsetMs,
+		ErrorSounds: s.ErrorSounds, ErrorVolume: s.ErrorVolume, ShowTiming: s.ShowTiming, MuteOnMiss: s.MuteOnMiss,
+		HitFx: s.HitFx, HighwayBounce: s.HighwayBounce, LastInstrument: s.LastInstrument, LastDifficulty: s.LastDifficulty,
+	}
+}
+
+// SetPlayer replaces the per-player part of the settings.
+func (s *Settings) SetPlayer(p PlayerSettings) {
+	p.Fix()
+	s.Engine, s.Highway, s.AudioOffsetMs, s.VideoOffsetMs = p.Engine, p.Highway, p.AudioOffsetMs, p.VideoOffsetMs
+	s.ErrorSounds, s.ErrorVolume, s.ShowTiming, s.MuteOnMiss = p.ErrorSounds, p.ErrorVolume, p.ShowTiming, p.MuteOnMiss
+	s.HitFx, s.HighwayBounce, s.LastInstrument, s.LastDifficulty = p.HitFx, p.HighwayBounce, p.LastInstrument, p.LastDifficulty
+}
+
+// ForPlayer returns a copy of the settings with a player's own part in
+// place of the shared file's.
+func (s *Settings) ForPlayer(p PlayerSettings) *Settings {
+	c := *s
+	c.OnSave = nil
+	c.SetPlayer(p)
+	return &c
+}
+
+// DefaultPlayer is a new player's settings.
+func DefaultPlayer() PlayerSettings { return Default().Player() }
+
+// Fix fills in values missing from older or hand-edited files.
+func (p *PlayerSettings) Fix() {
+	if p.Highway.NearWidth == 0 {
+		p.Highway = render.DefaultHighway()
+	}
+	if p.Engine.EarlyWindow == 0 {
+		p.Engine = engine.DefaultSettings()
+	}
+	p.Engine.Rules = engine.CurrentRules
+	if p.ErrorSounds == "" {
+		p.ErrorSounds = "overstrum"
+	}
+	if p.HitFx == "" {
+		p.HitFx = "full"
+	}
 }
 
 // Look is the chosen theme and note size (see render.ThemeSpec).
@@ -119,6 +198,7 @@ func Default() *Settings {
 		BackgroundMenus: true,
 		Browse:          Browse{Sort: "artist", DiffScale: "charter", Filter: Filter{InstMode: "all"}},
 		Look:            Look{Theme: "Jam", NoteSize: 1},
+		Multi:           Multi{Mode: "band", Layout: "auto"},
 	}
 }
 
@@ -140,6 +220,7 @@ func BindingsPath() string { return filepath.Join(Dir(), "bindings.json") }
 func RunsDir() string      { return filepath.Join(Dir(), "runs") }
 func SongsDir() string     { return filepath.Join(Dir(), "songs") }
 func ThemesDir() string    { return filepath.Join(Dir(), "themes") }
+func ProfilesDir() string  { return filepath.Join(Dir(), "profiles") }
 
 // Load reads settings, falling back to defaults. On first run the Clone Hero
 // song folders are imported.
@@ -157,6 +238,12 @@ func Load() (*Settings, bool) {
 	}
 	if s.Highway.NearWidth == 0 {
 		s.Highway = render.DefaultHighway()
+	}
+	if s.Multi.Mode == "" {
+		s.Multi.Mode = "band"
+	}
+	if s.Multi.Layout == "" {
+		s.Multi.Layout = "auto"
 	}
 	if s.Look.NoteSize <= 0 {
 		s.Look.NoteSize = 1
@@ -188,7 +275,13 @@ func (s *Settings) Save() error {
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, SettingsPath())
+	if err := os.Rename(tmp, SettingsPath()); err != nil {
+		return err
+	}
+	if s.OnSave != nil {
+		s.OnSave(s)
+	}
+	return nil
 }
 
 // DetectCloneHeroPaths reads song folders from Clone Hero's settings.ini.

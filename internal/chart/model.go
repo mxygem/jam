@@ -279,6 +279,31 @@ type Track struct {
 	DrumMode  DrumMode
 }
 
+// Tail returns the track from note first on, for a player who joins
+// partway through a song. Phrases stay as they are (they're matched to
+// notes by tick).
+func (t *Track) Tail(first int) *Track {
+	c := *t
+	if first < 0 {
+		first = 0
+	}
+	if first > len(t.Notes) {
+		first = len(t.Notes)
+	}
+	c.Notes = t.Notes[first:]
+	return &c
+}
+
+// FirstAfter is the index of the first note at or after song time tm.
+func (t *Track) FirstAfter(tm float64) int {
+	for i := range t.Notes {
+		if t.Notes[i].Time >= tm {
+			return i
+		}
+	}
+	return len(t.Notes)
+}
+
 // GemCount is the total number of gems in the track.
 func (t *Track) GemCount() int {
 	n := 0

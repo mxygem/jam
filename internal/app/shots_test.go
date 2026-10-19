@@ -177,7 +177,7 @@ func TestSettingsPages(t *testing.T) {
 	h := newHarness(t)
 	a := h.a
 	a.scene = NewMainMenu(a)
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 5; i++ {
 		h.tap(bitDPadDown) // Settings
 	}
 	h.tap(bitA)

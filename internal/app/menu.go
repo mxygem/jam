@@ -17,14 +17,17 @@ type MainMenu struct {
 // NewMainMenu builds the title screen.
 func NewMainMenu(a *App) *MainMenu {
 	m := &MainMenu{}
+	a.Band = nil // back at the title screen: multiplayer is over
 	m.list.Items = []Item{
 		{Label: "Play", Hint: "Pick a song from your library", Activate: func() { a.playlistFromMenu = false; a.SetScene(NewSongSelect(a)) }},
+		{Label: "Multiplayer", Hint: "Up to 8 players: band, head to head, or party mode where anyone drops in and out", Activate: func() { a.SetScene(NewLobby(a)) }},
 		{Label: "Playlists", Hint: "Build, save and play lists of songs", Activate: func() { a.playlistFromMenu = true; a.SetScene(NewPlaylistScene(a)) }},
 		{Label: "Past runs", Hint: "Review recorded playthroughs: timing, misses, sections", Activate: func() { a.SetScene(NewRuns(a)) }},
+		{Label: "Profiles", Hint: "Who's playing: each profile has its own settings, controller setup, scores and runs", Activate: func() { a.SetScene(NewProfileScene(a)) }},
 		{Label: "Settings", Hint: "Gameplay, highway, audio and latency, controller and drum setup, song folders", Activate: func() { a.SetScene(NewSettings(a)) }},
 		{Label: "Quit", Activate: func() { a.Quit() }},
 	}
-	m.list.Visible = 5
+	m.list.Visible = len(m.list.Items)
 	return m
 }
 
@@ -45,8 +48,19 @@ func (m *MainMenu) Draw(dst *ebiten.Image, a *App) {
 	render.FillRect(dst, 168, 318, 210, 8, render.Mix(th.Accent, th.StarPower, pulse*0.3))
 	render.Text(dst, "v"+Version, render.Cond, 24, 390, 300, th.TextDim, render.Left)
 
-	m.list.Draw(dst, 120, 380, 560, 76)
-	render.Text(dst, m.list.Hint(), render.UI, 26, 120, 380+5*76+20, th.TextDim, render.Left)
+	m.list.Draw(dst, 120, 370, 560, 70)
+	drawWrapped(dst, m.list.Hint(), render.UI, 26, 120, 370+float64(len(m.list.Items))*70+16, 900, th.TextDim)
+
+	// who's playing
+	if p := a.Active; p != nil {
+		w, _ := render.Measure(p.Name, render.UIBold, 30)
+		x := 520.0
+		render.RoundRect(dst, x, 292, w+72, 44, 22, render.WithAlpha(th.Panel, 0.85))
+		b := render.Batch{}
+		b.Ellipse(dst, x+26, 314, 10, 10, profileColor(p), profileColor(p))
+		b.Flush(dst)
+		render.Text(dst, p.Name, render.UIBold, 30, x+48, 296, th.Text, render.Left)
+	}
 
 	// devices panel
 	px, py, pw := 1180.0, 380.0, 640.0

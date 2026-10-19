@@ -31,15 +31,21 @@ type loadResult struct {
 
 // NewLoading starts loading a song.
 func NewLoading(a *App, s *chart.Song, inst chart.Instrument, diff chart.Difficulty) *Loading {
-	l := &Loading{song: s, inst: inst, diff: diff, done: make(chan loadResult, 1), start: clock.Now()}
+	l := &Loading{song: s, inst: inst, diff: diff, done: loadSong(a, s), start: clock.Now()}
+	return l
+}
+
+// loadSong reads a song's chart and decodes its audio in the background.
+func loadSong(a *App, s *chart.Song) chan loadResult {
+	done := make(chan loadResult, 1)
 	go func() {
 		c, err := s.LoadChart()
 		if err != nil {
-			l.done <- loadResult{err: err}
+			done <- loadResult{err: err}
 			return
 		}
 		if a.NoAudio {
-			l.done <- loadResult{c: c, audio: playback.Silent(c.LastTime() + 3)}
+			done <- loadResult{c: c, audio: playback.Silent(c.LastTime() + 3)}
 			return
 		}
 		t0 := clock.Now()
@@ -50,9 +56,9 @@ func NewLoading(a *App, s *chart.Song, inst chart.Instrument, diff chart.Difficu
 			}
 			log.Printf("audio for %q ready in %.2fs", s.Title(), clock.Now()-t0)
 		}
-		l.done <- loadResult{c: c, audio: au, err: err}
+		done <- loadResult{c: c, audio: au, err: err}
 	}()
-	return l
+	return done
 }
 
 func (l *Loading) Update(a *App) error {

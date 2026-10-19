@@ -191,6 +191,9 @@ type Engine interface {
 	// SPAlive reports whether a note belongs to a star power phrase that can
 	// still be completed (no note in it has been missed yet).
 	SPAlive(note int) bool
+	// Revive brings a failed player back with the rock meter half full (a
+	// bandmate's star power saved them).
+	Revive()
 }
 
 // New returns the engine for a track.
@@ -265,6 +268,17 @@ func (b *base) init(c *chart.Chart, t *chart.Track, s Settings) {
 }
 
 func (b *base) Stats() *Stats { return &b.stats }
+
+// reviveRock is where the rock meter stands after a save.
+const reviveRock = 0.5
+
+func (b *base) Revive() {
+	if !b.stats.Failed {
+		return
+	}
+	b.stats.Failed = false
+	b.stats.Rock = reviveRock
+}
 
 func (b *base) SPAlive(note int) bool {
 	if note < 0 || note >= len(b.phraseOf) {

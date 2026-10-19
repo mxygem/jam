@@ -71,22 +71,38 @@ func (s Summary) HitRate() float64 {
 
 // Recording is a complete playthrough.
 type Recording struct {
-	Version     int               `json:"version"`
-	App         string            `json:"app"`
-	Started     time.Time         `json:"started"`
-	Song        SongRef           `json:"song"`
-	Instrument  string            `json:"instrument"`
-	Difficulty  string            `json:"difficulty"`
-	Settings    engine.Settings   `json:"settings"`
-	AudioOffset float64           `json:"audio_offset_ms"`
-	VideoOffset float64           `json:"video_offset_ms"`
-	Speed       float64           `json:"speed"`
-	Device      string            `json:"device"`
-	Completed   bool              `json:"completed"`
-	EndTime     float64           `json:"end_time"`
-	Inputs      []Input           `json:"inputs"`
-	Judgments   []engine.Judgment `json:"judgments"`
-	Result      Summary           `json:"result"`
+	Version     int             `json:"version"`
+	App         string          `json:"app"`
+	Started     time.Time       `json:"started"`
+	Song        SongRef         `json:"song"`
+	Instrument  string          `json:"instrument"`
+	Difficulty  string          `json:"difficulty"`
+	Settings    engine.Settings `json:"settings"`
+	AudioOffset float64         `json:"audio_offset_ms"`
+	VideoOffset float64         `json:"video_offset_ms"`
+	Speed       float64         `json:"speed"`
+	Device      string          `json:"device"`
+	Completed   bool            `json:"completed"`
+	EndTime     float64         `json:"end_time"`
+
+	// Who played and with whom. Recordings from before profiles have no
+	// profile (they belong to the first one).
+	Profile string `json:"profile,omitempty"` // profile id
+	Player  string `json:"player,omitempty"`  // profile name at the time
+	Mode    string `json:"mode,omitempty"`    // multiplayer: band, h2h, party
+	Session string `json:"session,omitempty"` // runs played together share this
+	Players int    `json:"players,omitempty"` // multiplayer: how many played
+	// FirstNote is the first note of the part the player played: a player
+	// who joined a party song partway through starts later. Note indexes
+	// in Judgments count from it (see TrackFor).
+	FirstNote int `json:"first_note,omitempty"`
+	// Revives are the song times a bandmate's star power brought the player
+	// back after failing (band mode).
+	Revives []float64 `json:"revives,omitempty"`
+
+	Inputs    []Input           `json:"inputs"`
+	Judgments []engine.Judgment `json:"judgments"`
+	Result    Summary           `json:"result"`
 }
 
 // Recorder accumulates a recording during play.
@@ -192,13 +208,33 @@ func (r *Recording) Events() []action.Event {
 
 // Resimulate replays the recorded inputs through a fresh engine, optionally
 // with different settings (e.g. to see what wider hit windows would do).
-func Resimulate(c *chart.Chart, t *chart.Track, set engine.Settings, events []action.Event, end float64) engine.Engine {
+// revives are the times a failed player was brought back (see Recording).
+func Resimulate(c *chart.Chart, t *chart.Track, set engine.Settings, events []action.Event, end float64, revives ...float64) engine.Engine {
 	e := engine.New(c, t, set)
+	ri := 0
+	revive := func(upTo float64) {
+		for ri < len(revives) && revives[ri] <= upTo {
+			e.Advance(revives[ri])
+			e.Revive()
+			ri++
+		}
+	}
 	for _, ev := range events {
+		revive(ev.Time)
 		e.Process(ev)
 	}
+	revive(end)
 	e.Advance(end)
 	return e
+}
+
+// TrackFor returns the part a recording was played against: t itself, or
+// its tail when the player joined partway through.
+func TrackFor(r *Recording, t *chart.Track) *chart.Track {
+	if r == nil || t == nil || r.FirstNote <= 0 {
+		return t
+	}
+	return t.Tail(r.FirstNote)
 }
 
 // Characters Windows doesn't allow in file names (plus control characters).
@@ -215,7 +251,11 @@ func (r *Recording) Save(dir string) (string, error) {
 	if rs := []rune(title); len(rs) > 60 {
 		title = strings.TrimSpace(string(rs[:60]))
 	}
-	name := fmt.Sprintf("%s %s %s %s.jamrun.json.gz", r.Started.Format("2006-01-02 150405"), title, r.Instrument, r.Difficulty)
+	who := ""
+	if r.Player != "" && (r.Players > 1 || r.Mode != "") {
+		who = " " + unsafeName.ReplaceAllString(r.Player, "")
+	}
+	name := fmt.Sprintf("%s %s %s %s%s.jamrun.json.gz", r.Started.Format("2006-01-02 150405"), title, r.Instrument, r.Difficulty, who)
 	path := filepath.Join(dir, name)
 	f, err := os.Create(path)
 	if err != nil {

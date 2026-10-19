@@ -25,8 +25,13 @@ func (h *harness) until(what string, max float64, cond func() bool, feed func() 
 		if feed != nil {
 			evs = feed()
 		}
-		if _, loading := h.a.scene.(*Loading); loading {
+		switch sc := h.a.scene.(type) {
+		case *Loading, *BandLoading, *PartyStart:
 			time.Sleep(2 * time.Millisecond) // the loader is a real goroutine
+		case *BandPlay:
+			if sc.endAt > 0 {
+				time.Sleep(2 * time.Millisecond) // the next party song loads
+			}
 		}
 		h.frame(evs...)
 	}

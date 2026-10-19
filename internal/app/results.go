@@ -58,7 +58,7 @@ func (r *Results) Update(a *App) error {
 				a.PlaylistNext()
 				return nil
 			}
-			if r.song != nil && r.t != nil {
+			if r.song != nil && r.t != nil && a.Band == nil {
 				a.SetScene(NewLoading(a, r.song, r.t.Key.Inst, r.t.Key.Diff))
 				return nil
 			}
@@ -199,7 +199,7 @@ func (r *Results) Draw(dst *ebiten.Image, a *App) {
 		r.drawTab(dst, rx, ry+70, rw)
 	}
 	foot := "Left/right tabs     Up/down scroll     Esc / red back"
-	if r.song != nil {
+	if r.song != nil && a.Band == nil {
 		foot = "Enter / green retry     " + foot
 	}
 	if a.Run != nil && r.song != nil {

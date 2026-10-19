@@ -3,6 +3,7 @@ package replay
 import (
 	"compress/gzip"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -35,15 +36,16 @@ func ScoreKey(songDir, instrument, difficulty string) string {
 }
 
 // LoadScores reads the score index, building it from the run files in
-// runsDir the first time.
-func LoadScores(path, runsDir string) *Scores {
+// runsDir the first time. owns picks the runs that belong in this index by
+// their profile id (nil keeps every run).
+func LoadScores(path, runsDir string, owns func(profile string) bool) *Scores {
 	s := &Scores{path: path, best: map[string]*Best{}}
 	if data, err := os.ReadFile(path); err == nil && json.Unmarshal(data, &s.best) == nil {
 		return s
 	}
 	files, _ := List(runsDir)
 	for _, f := range files {
-		if r, err := loadHeader(f); err == nil {
+		if r, err := loadHeader(f); err == nil && (owns == nil || owns(r.Profile)) {
 			s.add(r)
 		}
 	}
@@ -59,6 +61,53 @@ type header struct {
 	Difficulty string    `json:"difficulty"`
 	Completed  bool      `json:"completed"`
 	Result     Summary   `json:"result"`
+	Profile    string    `json:"profile,omitempty"`
+}
+
+// PeekPlayer reads who played a recording: its profile id and the
+// player's name. It stops reading at the inputs, so it's quick even for
+// long songs.
+func PeekPlayer(path string) (profile, player string, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", "", err
+	}
+	defer f.Close()
+	var rd io.Reader = f
+	if strings.HasSuffix(strings.ToLower(path), ".gz") {
+		zr, err := gzip.NewReader(f)
+		if err != nil {
+			return "", "", err
+		}
+		defer zr.Close()
+		rd = zr
+	}
+	dec := json.NewDecoder(rd)
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return "", "", fmt.Errorf("%s isn't a recording", filepath.Base(path))
+	}
+	for dec.More() {
+		t, err := dec.Token()
+		if err != nil {
+			return profile, player, err
+		}
+		key, _ := t.(string)
+		switch key {
+		case "inputs", "judgments":
+			return profile, player, nil
+		case "profile":
+			err = dec.Decode(&profile)
+		case "player":
+			err = dec.Decode(&player)
+		default:
+			var skip json.RawMessage
+			err = dec.Decode(&skip)
+		}
+		if err != nil {
+			return profile, player, err
+		}
+	}
+	return profile, player, nil
 }
 
 func loadHeader(path string) (*header, error) {
@@ -166,4 +215,14 @@ func (s *Scores) Save() error {
 		return err
 	}
 	return os.Rename(tmp, s.path)
+}
+
+// Count is how many parts have a best score.
+func (s *Scores) Count() int {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.best)
 }

@@ -54,6 +54,9 @@ func main() {
 	flag.StringVar(&o.ShotScene, "scene", "", "scene for --screenshot without --song: menu, select, wizard")
 	flag.BoolVar(&o.Windowed, "windowed", false, "ignore the fullscreen setting")
 	flag.StringVar(&o.WindowSize, "window", "", "window size, e.g. 3840x1080 (for screenshots of other screen shapes)")
+	flag.IntVar(&o.Players, "players", 0, "with --song: play it with this many players (1-8); with --autoplay bots play every part")
+	flag.StringVar(&o.Mode, "mode", "", "multiplayer mode for --players: band, h2h, party")
+	flag.StringVar(&o.Layout, "layout", "", "multiplayer layout for --players: auto, row, rows")
 	flag.Parse()
 	if o.Screenshot != "" && o.Song == "" && o.ShotScene == "" {
 		o.ShotScene = "menu"

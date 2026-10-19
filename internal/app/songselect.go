@@ -318,6 +318,10 @@ func (s *SongSelect) Update(a *App) error {
 				s.refresh(a)
 			} else {
 				_ = a.Settings.Save()
+				if a.Band != nil {
+					a.SetScene(NewLobby(a))
+					return nil
+				}
 				a.SetScene(NewMainMenu(a))
 				return nil
 			}
@@ -522,6 +526,10 @@ func plainTitle(song *chart.Song) string {
 }
 
 func (s *SongSelect) openPicker(a *App, song *chart.Song) {
+	if a.Band != nil {
+		s.openBandPicker(a, song)
+		return
+	}
 	in := a.SongInfo(song)
 	if in == nil || in.Err != "" || len(in.Parts) == 0 {
 		a.Toast("This chart has no playable parts")
@@ -615,6 +623,9 @@ func (s *SongSelect) Draw(dst *ebiten.Image, a *App) {
 func (s *SongSelect) subtitle(a *App) string {
 	b := a.Settings.Browse
 	parts := []string{}
+	if l := bandLine(a); l != "" {
+		parts = append(parts, l)
+	}
 	shown := 0
 	for _, r := range s.rows {
 		if r.song != nil {
