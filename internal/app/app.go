@@ -79,11 +79,14 @@ type App struct {
 	Active   *profile.Profile // the profile using the menus (see profiles.go)
 	scoresBy map[string]*replay.Scores
 	bindsBy  map[string]*input.Bindings
-	Art      *artCache
-	Queue    *playlist.Playlist // the playlist being built or played
-	Preview  *previewer         // song list audio previews
-	Run      *playRun           // playing through a playlist
-	Band     *Band              // multiplayer: the players playing together
+
+	confirmDev device // the controller that last pressed confirm
+	confirmSet bool
+	Art        *artCache
+	Queue      *playlist.Playlist // the playlist being built or played
+	Preview    *previewer         // song list audio previews
+	Run        *playRun           // playing through a playlist
+	Band       *Band              // multiplayer: the players playing together
 
 	BG *backgrounds
 
@@ -388,6 +391,7 @@ func (a *App) Update() (err error) {
 	now := clock.Now()
 	a.Raw = a.Input.Poll(a.Raw[:0])
 	a.MenuActs = a.Menu.Feed(a.Raw, now)
+	a.noteConfirm()
 	a.Chars = ebiten.AppendInputChars(a.Chars[:0])
 	a.BG.update(a)
 	mx, my := a.canvasOffset()

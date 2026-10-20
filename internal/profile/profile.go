@@ -46,6 +46,11 @@ type Profile struct {
 	// folder, and owns the recordings made before profiles existed.
 	Legacy bool                  `json:"legacy,omitempty"`
 	Player config.PlayerSettings `json:"settings"`
+	// Devices are the controllers this player last set up or joined with
+	// ("xinput:0", "midi:1"...). A controller belongs to one profile at a
+	// time; the controller setup uses it to guess whose controls are being
+	// set up.
+	Devices []string `json:"devices,omitempty"`
 
 	dir string
 }

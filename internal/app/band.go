@@ -154,6 +154,9 @@ func (b *Band) freeProfile(a *App) *profile.Profile {
 // one if everyone's taken).
 func (b *Band) join(a *App, d device) *member {
 	p := b.freeProfile(a)
+	if o := a.DeviceOwner(d); o != nil && !b.has(o) {
+		p = o // the controller remembers who used it last
+	}
 	if p == nil {
 		p = a.NewProfile("")
 	}
@@ -180,6 +183,7 @@ func (m *member) setProfile(a *App, p *profile.Profile) {
 		m.diff = d
 	}
 	m.menu = input.NewMenuInput(a.BindingsFor(p), a.Input.Devices())
+	a.LinkDevice(p, m.dev)
 }
 
 // remember saves the member's part as their profile's preference.

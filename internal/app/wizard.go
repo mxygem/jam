@@ -12,13 +12,15 @@ import (
 	"github.com/mxygem/jam/internal/action"
 	"github.com/mxygem/jam/internal/clock"
 	"github.com/mxygem/jam/internal/input"
+	"github.com/mxygem/jam/internal/profile"
 	"github.com/mxygem/jam/internal/render"
 )
 
 type wizStage int
 
 const (
-	stageDevice wizStage = iota
+	stageWho wizStage = iota // whose controls (when there's more than one profile)
+	stageDevice
 	stageBind
 	stageTest
 )
@@ -37,11 +39,20 @@ type axisTrack struct {
 	tripped bool
 }
 
-// Wizard maps a controller step by step and lets the player test it.
+// Wizard maps a controller step by step and lets the player test it. The
+// mapping is saved to one profile: the one picked on the first screen
+// (which starts on whoever's controller opened the setup), or the player
+// whose card opened it in the lobby.
 type Wizard struct {
 	fam   input.Family
 	stage wizStage
 	set   action.Set
+
+	prof     *profile.Profile // whose bindings these are
+	who      List             // stageWho
+	back     func(a *App)     // where leaving goes
+	fixedDev bool             // the controller was known up front (lobby)
+	guessed  string           // why prof was picked (shown on the first screen)
 
 	devSrc  input.Source
 	devIdx  int
@@ -69,15 +80,80 @@ type Wizard struct {
 	lastRaw            float64
 }
 
-// NewWizard starts the setup flow for an instrument family.
+// NewWizard starts the setup flow for an instrument family from the
+// settings. It's for the profile linked to the controller that opened it
+// (or the active profile), and asks first when there's more than one.
 func NewWizard(a *App, fam input.Family) *Wizard {
-	w := &Wizard{fam: fam, set: action.GuitarSet, padHit: map[action.Action]float64{}, padVel: map[action.Action]float32{}}
+	w := newWizard(a, fam, a.Active, func(a *App) { a.SetScene(NewSettingsAt(a, pageControls)) })
+	if a.confirmSet {
+		if p := a.DeviceOwner(a.confirmDev); p != nil {
+			w.prof = p
+			w.guessed = "The controller that opened this belongs to " + p.Name
+		}
+	}
+	if a.Profiles != nil && len(a.Profiles.All()) > 1 {
+		w.stage = stageWho
+		w.buildWho(a)
+	}
+	return w
+}
+
+// NewWizardFor sets up controls for one profile, returning with back. With
+// dev the controller is already known and the setup starts on its first
+// control.
+func NewWizardFor(a *App, fam input.Family, p *profile.Profile, dev *device, back func(a *App)) *Wizard {
+	w := newWizard(a, fam, p, back)
+	if dev != nil {
+		w.fixedDev = true
+		w.useDevice(a, dev.src, dev.index)
+		w.beginStep(a, 0)
+		w.stage = stageBind
+	}
+	return w
+}
+
+func newWizard(a *App, fam input.Family, p *profile.Profile, back func(a *App)) *Wizard {
+	w := &Wizard{fam: fam, set: action.GuitarSet, padHit: map[action.Action]float64{}, padVel: map[action.Action]float32{}, prof: p, back: back, stage: stageDevice}
 	if fam == input.FamilyDrums {
 		w.set = action.DrumSet
 	}
 	w.stepStart = clock.Now()
 	return w
 }
+
+func (w *Wizard) buildWho(a *App) {
+	w.who = List{Visible: 2, Items: []Item{
+		{Label: "Controls for",
+			Value:  func() string { return w.prof.Name },
+			Swatch: func() color.RGBA { return profileColor(w.prof) },
+			Hint:   "Each profile keeps its own controller setup. Left/right picks whose this is",
+			Adjust: func(d int) {
+				all := a.Profiles.All()
+				i := max(0, a.Profiles.Index(w.prof))
+				w.prof = all[((i+sign(d))%len(all)+len(all))%len(all)]
+			}},
+		{Label: "Start", Hint: "Next, press a button on the controller to set up", Activate: func() {
+			w.stage = stageDevice
+			w.stepStart = clock.Now()
+		}},
+	}}
+	w.who.Sel = 1
+}
+
+// useDevice picks the controller being set up.
+func (w *Wizard) useDevice(a *App, src input.Source, idx int) {
+	w.devSrc, w.devIdx = src, idx
+	w.devName = a.Input.DeviceName(src, idx)
+	if src == input.SrcKeyboard {
+		w.devName = "Keyboard"
+	}
+	log.Printf("wizard %s: device %s (%s #%d) for %s", w.fam, w.devName, src, idx, w.prof.Name)
+}
+
+// bindings are the profile's bindings being changed.
+func (w *Wizard) bindings(a *App) *input.Bindings { return a.BindingsFor(w.prof) }
+
+func (w *Wizard) leave(a *App) { w.back(a) }
 
 func (w *Wizard) isDrums() bool { return w.fam == input.FamilyDrums }
 
@@ -105,9 +181,17 @@ func (w *Wizard) Update(a *App) error {
 		}
 	}
 	switch w.stage {
+	case stageWho:
+		if w.who.Update(a) {
+			return nil
+		}
+		if a.Pressed(action.MenuBack) {
+			w.leave(a)
+		}
+		return nil
 	case stageDevice:
 		if esc {
-			a.SetScene(NewSettingsAt(a, pageControls))
+			w.leave(a)
 			return nil
 		}
 		for _, e := range a.Raw {
@@ -120,12 +204,7 @@ func (w *Wizard) Update(a *App) error {
 			if w.isDrums() && e.Src != input.SrcMIDI && e.Src != input.SrcKeyboard {
 				continue
 			}
-			w.devSrc, w.devIdx = e.Src, e.Device
-			w.devName = a.Input.DeviceName(e.Src, e.Device)
-			if e.Src == input.SrcKeyboard {
-				w.devName = "Keyboard"
-			}
-			log.Printf("wizard %s: device %s (%s #%d)", w.fam, w.devName, e.Src, e.Device)
+			w.useDevice(a, e.Src, e.Device)
 			k := e.Key()
 			w.waitUp = &k
 			w.beginStep(a, 0)
@@ -194,6 +273,10 @@ func (w *Wizard) finishStep(a *App, c captured) {
 func (w *Wizard) updateBind(a *App, now float64, esc, back bool) {
 	if esc {
 		if w.step == 0 {
+			if w.fixedDev {
+				w.leave(a)
+				return
+			}
 			w.stage = stageDevice
 			return
 		}
@@ -360,7 +443,7 @@ func (w *Wizard) next(a *App) {
 
 // pending builds the profile that would be saved.
 func (w *Wizard) pending(a *App) *input.Profile {
-	base := a.Bindings.Profile(w.fam)
+	base := w.bindings(a).Profile(w.fam)
 	p := &input.Profile{Family: w.fam, Bindings: map[string][]input.Binding{}}
 	for k, v := range base.Bindings {
 		p.Bindings[k] = append([]input.Binding(nil), v...)
@@ -382,21 +465,29 @@ func (w *Wizard) enterTest(a *App) {
 
 func (w *Wizard) save(a *App) {
 	p := w.pending(a)
-	a.Bindings.Profiles[w.fam] = p
-	if err := a.SaveBindings(); err != nil {
+	b := w.bindings(a)
+	b.Profiles[w.fam] = p
+	var err error
+	if w.prof == a.Active {
+		err = a.SaveBindings() // also refreshes menu navigation
+	} else {
+		err = b.Save(w.prof.BindingsPath())
+	}
+	if err != nil {
 		a.Toast("Couldn't save bindings: " + err.Error())
 		return
 	}
 	for _, c := range w.caps {
-		log.Printf("wizard %s saved: %s = %v", w.fam, c.act.Title(), c.desc)
+		log.Printf("wizard %s saved for %s: %s = %v", w.fam, w.prof.Name, c.act.Title(), c.desc)
 	}
-	a.Toast("Saved " + string(w.fam) + " bindings for " + w.devName)
-	a.SetScene(NewSettingsAt(a, pageControls))
+	a.LinkDevice(w.prof, device{src: w.devSrc, index: w.devIdx})
+	a.Toast(fmt.Sprintf("Saved %s's %s controls (%s)", w.prof.Name, w.fam, w.devName))
+	w.leave(a)
 }
 
 func (w *Wizard) updateTest(a *App, now float64, esc, back bool) {
 	if esc {
-		a.SetScene(NewSettingsAt(a, pageControls))
+		w.leave(a)
 		return
 	}
 	if back {
@@ -518,9 +609,23 @@ func (w *Wizard) Draw(dst *ebiten.Image, a *App) {
 	if w.isDrums() {
 		what = "Drum setup"
 	}
+	for_ := ""
+	if w.prof != nil && a.Profiles != nil && len(a.Profiles.All()) > 1 {
+		for_ = " for " + w.prof.Name
+	}
 	switch w.stage {
+	case stageWho:
+		Header(dst, what, "Whose controls are these?")
+		Panel(dst, 560, 330, 800, 210)
+		render.FillRect(dst, 560, 330, 12, 210, profileColor(w.prof))
+		w.who.Draw(dst, 610, 370, 720, 80)
+		drawWrapped(dst, w.who.Hint(), render.UI, 28, 560, 570, 800, th.TextDim)
+		if w.guessed != "" {
+			drawWrapped(dst, w.guessed, render.UI, 26, 560, 640, 800, th.TextDim)
+		}
+		Footer(dst, "Left/right pick a profile     Enter / green choose     Esc / red back")
 	case stageDevice:
-		Header(dst, what, "Step 1: pick the device")
+		Header(dst, what+for_, "Step 1: pick the device")
 		msg := "Press any button on the guitar you want to use"
 		if w.isDrums() {
 			msg = "Hit any pad on your drum kit"
@@ -547,7 +652,7 @@ func (w *Wizard) Draw(dst *ebiten.Image, a *App) {
 		Footer(dst, "Esc back")
 	case stageBind:
 		act := w.current()
-		Header(dst, what, fmt.Sprintf("Step %d of %d  ·  %s", w.step+1, len(w.set), w.devName))
+		Header(dst, what+for_, fmt.Sprintf("Step %d of %d  ·  %s", w.step+1, len(w.set), w.devName))
 		title, sub := prompt(act)
 		c := w.actionColor(act)
 		pulse := 0.85 + 0.15*math.Sin(now*6)
@@ -583,7 +688,7 @@ func (w *Wizard) Draw(dst *ebiten.Image, a *App) {
 		}
 		Footer(dst, "Backspace skip / redo     Esc previous step")
 	case stageTest:
-		Header(dst, what, "Test it: everything you press should light up below")
+		Header(dst, what+for_, "Test it: everything you press should light up below")
 		if w.isDrums() {
 			w.drawDrumTest(dst, now)
 		} else {

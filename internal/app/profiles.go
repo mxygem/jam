@@ -1,11 +1,13 @@
 package app
 
 import (
+	"fmt"
 	"image/color"
 	"log"
 	"os"
 	"path/filepath"
 
+	"github.com/mxygem/jam/internal/action"
 	"github.com/mxygem/jam/internal/config"
 	"github.com/mxygem/jam/internal/input"
 	"github.com/mxygem/jam/internal/profile"
@@ -183,4 +185,67 @@ func profileColor(p *profile.Profile) color.RGBA {
 		}
 	}
 	return th.Accent
+}
+
+// Controllers and profiles: a controller is linked to the profile that
+// last joined with it or set it up, so the controller setup can guess
+// whose controls it's changing. The keyboard is shared and never linked.
+
+func deviceKey(d device) string { return fmt.Sprintf("%s:%d", d.src, d.index) }
+
+// DeviceOwner is the profile linked to a controller, or nil.
+func (a *App) DeviceOwner(d device) *profile.Profile {
+	if d.src == input.SrcKeyboard || a.Profiles == nil {
+		return nil
+	}
+	k := deviceKey(d)
+	for _, p := range a.Profiles.All() {
+		for _, x := range p.Devices {
+			if x == k {
+				return p
+			}
+		}
+	}
+	return nil
+}
+
+// LinkDevice links a controller to a profile (and unlinks it from anyone
+// else).
+func (a *App) LinkDevice(p *profile.Profile, d device) {
+	if p == nil || d.src == input.SrcKeyboard || a.Profiles == nil || a.Profiles.Index(p) < 0 {
+		return
+	}
+	k := deviceKey(d)
+	for _, q := range a.Profiles.All() {
+		keep := q.Devices[:0]
+		had := false
+		for _, x := range q.Devices {
+			if x == k {
+				had = true
+				continue
+			}
+			keep = append(keep, x)
+		}
+		q.Devices = keep
+		if had && q != p {
+			a.SaveProfile(q)
+		}
+	}
+	p.Devices = append(p.Devices, k)
+	a.SaveProfile(p)
+}
+
+// noteConfirm remembers which controller pressed confirm this frame (for
+// the controller setup's guess).
+func (a *App) noteConfirm() {
+	if !a.Pressed(action.MenuConfirm) {
+		return
+	}
+	a.confirmSet = false
+	for i := len(a.Raw) - 1; i >= 0; i-- {
+		if e := a.Raw[i]; e.Down && e.Kind != input.KindAxis {
+			a.confirmDev, a.confirmSet = deviceOf(e), true
+			return
+		}
+	}
 }

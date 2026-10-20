@@ -9,6 +9,7 @@ import (
 
 	"github.com/mxygem/jam/internal/action"
 	"github.com/mxygem/jam/internal/clock"
+	"github.com/mxygem/jam/internal/input"
 	"github.com/mxygem/jam/internal/profile"
 	"github.com/mxygem/jam/internal/render"
 )
@@ -110,6 +111,17 @@ func (l *Lobby) card(a *App, m *member) *lobbyCard {
 			}
 			c.ready = true
 			m.remember(a)
+		}},
+		Item{Label: "Controls", Hint: "Map this controller for your profile (only you are changed)", Activate: func() {
+			if c.newProf {
+				return
+			}
+			b := l.band
+			a.SetScene(NewWizardFor(a, m.family(), m.prof, &m.dev, func(a *App) {
+				m.menu = input.NewMenuInput(a.BindingsFor(m.prof), a.Input.Devices())
+				a.Band = b
+				a.SetScene(NewLobby(a))
+			}))
 		}},
 	)
 	c.list = List{Items: items, Visible: len(items)}
@@ -273,10 +285,10 @@ func (l *Lobby) Draw(dst *ebiten.Image, a *App) {
 	Header(dst, "Multiplayer", sub)
 
 	cols, rows := 4, 2
-	cw, ch := 420.0, 376.0
-	gap := 24.0
+	cw, ch := 420.0, 396.0
+	gap := 18.0
 	x0 := (render.ScreenW - float64(cols)*cw - float64(cols-1)*gap) / 2
-	y0 := 210.0
+	y0 := 204.0
 	for i := 0; i < MaxPlayers; i++ {
 		x := x0 + float64(i%cols)*(cw+gap)
 		y := y0 + float64(i/cols)*(ch+gap)
@@ -349,8 +361,8 @@ func (l *Lobby) drawCard(dst *ebiten.Image, a *App, m *member, c *lobbyCard, x, 
 	if host {
 		render.Text(dst, "HOST", render.CondBold, 20, x+w-22, y+76, render.WithAlpha(col, 0.9), render.Right)
 	}
-	rowH := 46.0
-	c.list.Draw(dst, x+10, y+110, w-20, rowH)
+	rowH := 40.0
+	c.list.Draw(dst, x+10, y+106, w-20, rowH)
 	if c.ready {
 		render.FillRect(dst, x, y+h-62, w, 62, render.WithAlpha(col, 0.85))
 		render.Text(dst, "READY", render.Display, 40, x+w/2, y+h-60, th.Text, render.Center)

@@ -281,8 +281,8 @@ func newSettingsMenu(a *App, inSong bool) *settingsMenu {
 	}
 
 	controls := []Item{
-		{Label: "Guitar / bass setup", Hint: "Map and test a guitar controller (or keyboard)", Activate: func() { a.SetScene(NewWizard(a, input.FamilyGuitar)) }},
-		{Label: "Drum setup", Hint: "Map a MIDI drum kit or keyboard keys pad by pad", Activate: func() { a.SetScene(NewWizard(a, input.FamilyDrums)) }},
+		{Label: "Guitar / bass setup", Hint: "Map and test a guitar controller (or keyboard). Saved to the profile you pick, starting with whoever's controller pressed green", Activate: func() { a.SetScene(NewWizard(a, input.FamilyGuitar)) }},
+		{Label: "Drum setup", Hint: "Map a MIDI drum kit or keyboard keys pad by pad. Saved to the profile you pick", Activate: func() { a.SetScene(NewWizard(a, input.FamilyDrums)) }},
 	}
 
 	system := []Item{

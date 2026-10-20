@@ -64,6 +64,8 @@ Main menu > Multiplayer opens the lobby. Anyone joins by pressing Start or green
 
 Layouts: Auto (up to 4 side by side, 5 to 8 in two rows of four), One row, or Two rows. Players pick from the parts their controller plays: a guitar any 5-fret part (guitar, bass, rhythm, keys, co-op), a drum kit drums, the keyboard anything. In band and head to head, the song list's picker shows each player's part for that song (left/right changes the instrument, green the difficulty); a player whose instrument the song doesn't have sits out. Any player's Start (or Esc) pauses. Results show every player's card; green opens one player's full analysis.
 
+Controller mappings belong to profiles. Settings > Controls asks whose controls you're setting up, starting on whoever owns the controller that pressed green (a controller belongs to the profile that last joined with it or set it up; the keyboard belongs to no one). A player's lobby card has Controls to map their own controller straight away, and Profiles has guitar and drum setup for each profile. Joining on a controller brings back the profile it belongs to.
+
 Every player's run is recorded under their profile. Band saves are part of the recording, so runs still re-simulate exactly. `jam --song <folder> --players 4 --autoplay [--mode h2h] [--layout rows]` plays a song with bots on every part (for trying layouts).
 
 ## Command line tools

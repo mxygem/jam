@@ -8,6 +8,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 
 	"github.com/mxygem/jam/internal/action"
+	"github.com/mxygem/jam/internal/input"
 	"github.com/mxygem/jam/internal/profile"
 	"github.com/mxygem/jam/internal/render"
 )
@@ -82,7 +83,7 @@ func (s *ProfileScene) startTyping(value string, done func(string)) {
 func (s *ProfileScene) open(a *App, p *profile.Profile) {
 	s.sel = p
 	s.confirm = false
-	s.opts = List{Visible: 6, Items: []Item{
+	s.opts = List{Visible: 7, Items: []Item{
 		{Label: "Play as " + p.Name, Hint: "Menus, settings, scores and runs become " + p.Name + "'s", Disabled: p == a.Active,
 			Activate: func() {
 				a.UseProfile(p)
@@ -104,6 +105,14 @@ func (s *ProfileScene) open(a *App, p *profile.Profile) {
 			Adjust: func(d int) {
 				p.Color = cycleColor(p.Color, d)
 				a.SaveProfile(p)
+			}},
+		{Label: "Guitar / bass setup", Hint: "Map a guitar (or the keyboard) for " + p.Name,
+			Activate: func() {
+				a.SetScene(NewWizardFor(a, input.FamilyGuitar, p, nil, func(a *App) { a.SetScene(s); s.open(a, p) }))
+			}},
+		{Label: "Drum setup", Hint: "Map a drum kit (or keyboard keys) for " + p.Name,
+			Activate: func() {
+				a.SetScene(NewWizardFor(a, input.FamilyDrums, p, nil, func(a *App) { a.SetScene(s); s.open(a, p) }))
 			}},
 		{Label: "Delete", Hint: "Removes the profile, its settings, bindings and best scores. Its recordings stay in Past runs",
 			Disabled: p.Legacy || p == a.Active,
@@ -180,11 +189,11 @@ func (s *ProfileScene) Draw(dst *ebiten.Image, a *App) {
 	if s.sel != nil {
 		p := s.sel
 		x, y, w := 1100.0, 250.0, 700.0
-		Panel(dst, x-30, y-30, w+60, 620)
-		render.FillRect(dst, x-30, y-30, 12, 620, profileColor(p))
+		Panel(dst, x-30, y-30, w+60, 720)
+		render.FillRect(dst, x-30, y-30, 12, 720, profileColor(p))
 		render.Text(dst, p.Name, render.Display, 56, x, y-10, th.Text, render.Left)
 		s.opts.Draw(dst, x, y+90, w, 70)
-		drawWrapped(dst, s.opts.Hint(), render.UI, 24, x, y+90+5*70+20, w, th.TextDim)
+		drawWrapped(dst, s.opts.Hint(), render.UI, 24, x, y+90+7*70+20, w, th.TextDim)
 	}
 	if s.confirm {
 		render.Dim(dst, render.RGBA(0, 0, 0, 0xB8))

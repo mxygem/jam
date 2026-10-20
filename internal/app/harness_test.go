@@ -67,6 +67,7 @@ func (h *harness) frame(evs ...input.RawEvent) {
 	a.Raw = append(a.Raw[:0], evs...)
 	a.Input.Inject(a.Raw)
 	a.MenuActs = a.Menu.Feed(a.Raw, h.now)
+	a.noteConfirm()
 	func() {
 		defer func() {
 			if r := recover(); r != nil {

@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/mxygem/jam/internal/action"
 	"github.com/mxygem/jam/internal/chart"
 	"github.com/mxygem/jam/internal/config"
 	"github.com/mxygem/jam/internal/input"
@@ -468,4 +469,92 @@ func TestSkipVoteScreen(t *testing.T) {
 	p.voteSkip(a, p.seats[0].m)
 	h.idle(0.5)
 	h.shot("mp-skip-vote")
+}
+
+func TestControlsSavedPerProfile(t *testing.T) {
+	h := newHarness(t)
+	a := h.a
+	root := a.Active
+	sam := a.NewProfile("Sam")
+	sam2 := device{src: input.SrcXInput, index: 1}
+	a.LinkDevice(sam, sam2)
+	if a.DeviceOwner(sam2) != sam || a.DeviceOwner(device{src: input.SrcKeyboard}) != nil {
+		t.Fatal("device links")
+	}
+	// Sam presses green on their guitar in Settings > Controls
+	a.scene = NewSettingsAt(a, pageControls)
+	h.idle(0.1)
+	h.tapOn(1, bitA)
+	w, ok := a.scene.(*Wizard)
+	if !ok || w.prof != sam || w.stage != stageWho {
+		t.Fatalf("scene %T: the setup should open on Sam's profile", a.scene)
+	}
+	h.idle(0.1)
+	h.shot("controls-who")
+	h.tapOn(1, bitA) // Start
+	h.tapOn(1, bitY) // pick the controller
+	if w.stage != stageBind {
+		t.Fatalf("stage %v", w.stage)
+	}
+	// Sam plays with green and yellow swapped
+	for _, bit := range []int{bitY, bitB, bitA, bitX, bitLB, bitDPadDown, bitDPadUp, bitBack} {
+		h.tapOn(1, bit)
+		h.idle(0.6)
+	}
+	for w.stage == stageBind && w.current() != action.Start {
+		h.frame(keyDown(keyBackspace)) // skip tilt and whammy
+		h.frame(input.RawEvent{Src: input.SrcKeyboard, Kind: input.KindKey, Code: int(keyBackspace)})
+		h.idle(0.1)
+	}
+	h.tapOn(1, bitStart)
+	h.idle(0.6)
+	h.tapOn(1, bitBack)
+	h.idle(0.6)
+	if w.stage != stageTest {
+		t.Fatalf("stage %v at %s", w.stage, w.current().Title())
+	}
+	h.tapOn(1, bitStart) // save
+	green := func(b *input.Bindings) string {
+		for _, x := range b.Profile(input.FamilyGuitar).Get(action.Green) {
+			if x.Src == "xinput" {
+				return x.Describe()
+			}
+		}
+		return ""
+	}
+	if g := green(a.BindingsFor(sam)); g != "XInput Y" {
+		t.Fatalf("Sam's green is %q", g)
+	}
+	if g := green(a.Bindings); a.Active != root || g != "XInput A" {
+		t.Fatalf("Root's green changed to %q", g)
+	}
+	disk, err := input.LoadBindings(sam.BindingsPath())
+	if err != nil || green(disk) != "XInput Y" {
+		t.Fatal("Sam's bindings file wasn't written")
+	}
+
+	// In the lobby the guitar brings Sam back, Sam's menus use Sam's
+	// mapping, and Controls sets up Sam's controller straight away.
+	a.scene = NewLobby(a)
+	h.idle(0.1)
+	h.tapOn(1, bitA) // join (joining uses the shared green)
+	l := a.scene.(*Lobby)
+	m := l.band.Members[0]
+	if m.prof != sam {
+		t.Fatalf("the guitar should bring back Sam, got %s", m.prof.Name)
+	}
+	for i := 0; i < 6; i++ { // host card: Mode, Layout, Profile, Instrument, Difficulty, Ready, Controls
+		h.tapOn(1, bitDPadDown)
+	}
+	h.shot("controls-lobby")
+	h.tapOn(1, bitY) // Sam's green
+	w2, ok := a.scene.(*Wizard)
+	if !ok || w2.prof != sam || w2.stage != stageBind || w2.devIdx != 1 {
+		t.Fatalf("scene %T: Controls should start Sam's setup on their guitar", a.scene)
+	}
+	h.frame(keyDown(keyEscape))
+	h.frame(input.RawEvent{Src: input.SrcKeyboard, Kind: input.KindKey, Code: int(keyEscape)})
+	if !sceneIs[*Lobby](h)() || len(a.Band.Members) != 1 {
+		t.Fatalf("leaving the setup should return to the lobby (scene %T)", a.scene)
+	}
 }
