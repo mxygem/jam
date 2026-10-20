@@ -22,6 +22,9 @@ type SeatInfo struct {
 	// Overlay, if set, covers the highway: "OUT", "FAILED", "No drums part"...
 	Overlay, OverlaySub string
 	Dim                 float64 // 0..1 darkening of the highway under the overlay
+	// Banner, if set, is a notice in a pill near the top of the highway
+	// (a party skip vote).
+	Banner string
 }
 
 // SeatHighway fits a player's highway shape into a view vw wide.
@@ -174,6 +177,19 @@ func (u *SeatHUD) Draw(dst *ebiten.Image, hc HighwayConfig, s *HUDState, in *Sea
 		}
 		FillRect(dst, left, ry, nw, 8*k, WithAlpha(th.TextDim, 0.25))
 		FillRect(dst, left, ry, nw*math.Max(0, math.Min(1, s.Rock)), 8*k, c)
+	}
+
+	// --- banner ---
+	if in.Banner != "" {
+		size := 28 * k
+		w, _ := Measure(in.Banner, CondBold, size)
+		if w > nw*1.05 {
+			size *= nw * 1.05 / w
+			w = nw * 1.05
+		}
+		by := ty + 112*k
+		RoundRect(dst, cx-w/2-18*k, by, w+36*k, size*1.5, size*0.75, WithAlpha(th.Accent, 0.92))
+		Text(dst, in.Banner, CondBold, size, cx, by+size*0.22, th.Text, Center)
 	}
 
 	// --- messages over the highway ---

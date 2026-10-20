@@ -58,12 +58,10 @@ func (r *Results) Update(a *App) error {
 				a.PlaylistNext()
 				return nil
 			}
-			if r.song != nil && r.t != nil && a.Band == nil {
-				a.SetScene(NewLoading(a, r.song, r.t.Key.Inst, r.t.Key.Diff))
-				return nil
-			}
+			r.back(a) // green carries on: back to the song list
+			return nil
 		case action.MenuOptions:
-			if a.Run != nil && r.song != nil && r.t != nil { // retry inside a playlist
+			if r.song != nil && r.t != nil && a.Band == nil { // retry
 				a.SetScene(NewLoading(a, r.song, r.t.Key.Inst, r.t.Key.Diff))
 				return nil
 			}
@@ -198,9 +196,9 @@ func (r *Results) Draw(dst *ebiten.Image, a *App) {
 	} else {
 		r.drawTab(dst, rx, ry+70, rw)
 	}
-	foot := "Left/right tabs     Up/down scroll     Esc / red back"
+	foot := "Enter / green back     Left/right tabs     Up/down scroll"
 	if r.song != nil && a.Band == nil {
-		foot = "Enter / green retry     " + foot
+		foot = "Enter / green song list     Tab / yellow retry     Left/right tabs     Up/down scroll"
 	}
 	if a.Run != nil && r.song != nil {
 		next := "finish playlist"

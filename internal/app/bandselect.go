@@ -42,7 +42,7 @@ func (s *SongSelect) openBandPicker(a *App, song *chart.Song) {
 				}
 				return m.partLabel()
 			},
-			Adjust:   func(d int) { m.inst = cyclePart(m.inst, d, parts) },
+			Adjust:   func(d int) { m.inst = cyclePart(m.inst, d, m.parts(parts)) },
 			Activate: func() { m.diff = cycleDiff(m.diff, -1) },
 		})
 	}

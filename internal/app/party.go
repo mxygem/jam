@@ -63,7 +63,7 @@ func (p *BandPlay) joinCard(a *App, s *seat) *List {
 				return profileColor(m.prof)
 			},
 			Adjust: func(d int) { s.newProf = cycleBandProfile(a, p.band, m, s.newProf, d) }},
-		{Label: "Instrument", Value: func() string { return m.inst.Title() }, Adjust: func(d int) { m.inst = cyclePart(m.inst, d, p.songParts()) }},
+		{Label: "Instrument", Value: func() string { return m.inst.Title() }, Adjust: func(d int) { m.inst = cyclePart(m.inst, d, m.parts(p.songParts())) }},
 		{Label: "Difficulty", Value: func() string { return m.diff.Title() }, Adjust: func(d int) { m.diff = cycleDiff(m.diff, d) }},
 		{Label: "Play!", Activate: func() {
 			if s.newProf {
@@ -150,10 +150,24 @@ func (p *BandPlay) openSeatMenu(a *App, s *seat) {
 	}
 	s.menu = &List{Items: []Item{
 		{Label: "Back to playing", Activate: apply},
-		{Label: "Instrument", Value: func() string { return s.m.inst.Title() }, Adjust: func(d int) { s.m.inst = cyclePart(s.m.inst, d, p.songParts()) }},
+		{Label: "Instrument", Value: func() string { return s.m.inst.Title() }, Adjust: func(d int) { s.m.inst = cyclePart(s.m.inst, d, s.m.parts(p.songParts())) }},
 		{Label: "Difficulty", Value: func() string { return s.m.diff.Title() }, Adjust: func(d int) { s.m.diff = cycleDiff(s.m.diff, d) }},
+		{Label: "Vote to skip this song",
+			Hint: "Skips when more than half the players vote yes",
+			Value: func() string {
+				switch {
+				case p.vote != nil && p.vote.yes[s.m]:
+					return "You voted"
+				case p.vote != nil:
+					return fmt.Sprintf("%d of %d", p.yesVotes(), votesNeeded(len(p.voters())))
+				case !p.canStartVote(clock.Now()):
+					return "Wait a moment"
+				}
+				return ""
+			},
+			Activate: func() { apply(); p.voteSkip(a, s.m) }},
 		{Label: "Leave the party", Activate: func() { s.left = true; s.menu = nil }},
-	}, Visible: 4}
+	}, Visible: 5}
 }
 
 // updateSeatMenu runs a seat's own menu (or join card) from its controller.
@@ -446,4 +460,101 @@ func (ps *PartyStart) Draw(dst *ebiten.Image, a *App) {
 	}
 	render.Text(dst, strings.Join(names, "  ·  "), render.Cond, 30, render.ScreenW/2, 560, th.Text, render.Center)
 	Footer(dst, "Anyone can join during songs: press START or green on a controller     Esc back")
+}
+
+// --- skip votes ---
+
+// A party player can start a vote to skip the song from their menu. While
+// it's open, everyone else sees it on their highway and votes yes with
+// Start. It passes with more than half of the players and closes after
+// skipVoteTime seconds of song time otherwise.
+
+const (
+	skipVoteTime     = 15.0
+	skipVoteCooldown = 10.0 // after a vote fails, before another can start
+)
+
+type skipVote struct {
+	yes   map[*member]bool
+	until float64 // song time it closes
+}
+
+// voters is how many players get a say: everyone with a highway, not those
+// still setting up after joining.
+func (p *BandPlay) voters() []*member {
+	var out []*member
+	for _, s := range p.seats {
+		if s.joining == nil && !s.left {
+			out = append(out, s.m)
+		}
+	}
+	return out
+}
+
+// votesNeeded is a majority of the players.
+func votesNeeded(players int) int { return players/2 + 1 }
+
+func (p *BandPlay) yesVotes() int {
+	n := 0
+	for _, m := range p.voters() {
+		if p.vote != nil && p.vote.yes[m] {
+			n++
+		}
+	}
+	return n
+}
+
+// canStartVote reports whether a new skip vote can start now.
+func (p *BandPlay) canStartVote(now float64) bool {
+	return p.vote == nil && (p.voteFailedAt == 0 || p.songNow(now)-p.voteFailedAt >= skipVoteCooldown)
+}
+
+// voteSkip starts a skip vote, or adds the player's yes to the open one.
+func (p *BandPlay) voteSkip(a *App, m *member) {
+	now := clock.Now()
+	if p.vote == nil {
+		if !p.canStartVote(now) {
+			return
+		}
+		p.vote = &skipVote{yes: map[*member]bool{}, until: p.songNow(now) + skipVoteTime}
+		log.Printf("party: %s started a vote to skip %s", m.prof.Name, p.song.Title())
+	}
+	p.vote.yes[m] = true
+}
+
+// startPressed is Start on a party player's controller: their yes while a
+// skip vote waits on them, otherwise their menu.
+func (p *BandPlay) startPressed(a *App, s *seat) {
+	if p.vote != nil && !p.vote.yes[s.m] {
+		p.voteSkip(a, s.m)
+		return
+	}
+	p.openSeatMenu(a, s)
+}
+
+// updateVote passes or closes the open skip vote.
+func (p *BandPlay) updateVote(a *App, now float64) {
+	if p.vote == nil {
+		return
+	}
+	players := len(p.voters())
+	yes := p.yesVotes()
+	switch {
+	case players > 0 && yes >= votesNeeded(players):
+		log.Printf("party: skip vote passed %d/%d", yes, players)
+		p.vote = nil
+		a.Toast("Skipped by vote")
+		p.finish(a, false)
+	case p.songNow(now) > p.vote.until || players == 0:
+		log.Printf("party: skip vote failed %d/%d", yes, players)
+		p.vote = nil
+		p.voteFailedAt = p.songNow(now)
+		a.Toast(fmt.Sprintf("Not enough votes to skip (%d of %d needed)", yes, votesNeeded(players)))
+	}
+}
+
+// voteLabel is the top bar while a vote is open.
+func (p *BandPlay) voteLabel(now float64) string {
+	left := math.Max(0, p.vote.until-p.songNow(now))
+	return fmt.Sprintf("SKIP THIS SONG?  %d of %d needed  ·  START to vote  ·  %.0f", p.yesVotes(), votesNeeded(len(p.voters())), math.Ceil(left))
 }

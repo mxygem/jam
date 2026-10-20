@@ -50,7 +50,7 @@ jam --song <folder> [--instrument drums] [--difficulty hard] [--autoplay]
 jam --song <folder> --players 4 [--mode band|h2h|party] [--layout auto|row|rows] [--autoplay]
 ```
 
-Menus work from the keyboard (arrows, Enter, Esc), a guitar (strum to move, green to select, red to go back) or a drum kit (yellow up, blue down, green select, red back). F11 toggles fullscreen. Start or Esc pauses a song.
+After a song, green goes back to the song list and yellow (or Tab) plays it again. Menus work from the keyboard (arrows, Enter, Esc), a guitar (strum to move, green to select, red to go back) or a drum kit (yellow up, blue down, green select, red back). F11 toggles fullscreen. Start or Esc pauses a song.
 
 Default guitar keys if you play on a keyboard: A S D F G for frets, Up/Down arrows to strum, Space for Star Power.
 
@@ -60,9 +60,9 @@ Main menu > Multiplayer opens the lobby. Anyone joins by pressing Start or green
 
 - **Band**: one band score. A player whose rock meter runs out (with No fail off in their profile) is out until a bandmate activates star power, which brings them back at half rock. The song fails only if everyone is out at once.
 - **Head to head**: everyone for themselves, ranked live on each highway and in the results. A player who fails stops; the song ends when everyone has.
-- **Party**: songs play back to back with no failing. Songs come from the playlist being built (in order), then at random from the library, preferring songs with everyone's parts. Anyone can join mid-song by pressing Start on a free controller: they set up on a card in a new highway while the music keeps going, and their notes start 2.5 s later. Start on your own controller opens your menu (switch instrument or difficulty, or leave the party) without pausing anyone else. Scores show for a few seconds between songs while the next one loads. Esc pauses (skip a song, or back to the lobby).
+- **Party**: songs play back to back with no failing. Songs come from the playlist being built (in order), then at random from the library, preferring songs with everyone's parts. Anyone can join mid-song by pressing Start on a free controller: they set up on a card in a new highway while the music keeps going, and their notes start 2.5 s later. Start on your own controller opens your menu (switch instrument or difficulty, vote to skip the song, or leave the party) without pausing anyone else. A skip vote shows on everyone's highway; Start votes yes, and the song skips once more than half the players agree (15 s to get there, then 10 s before another vote). Scores show for a few seconds between songs while the next one loads. Esc pauses (skip a song, or back to the lobby).
 
-Layouts: Auto (up to 4 side by side, 5 to 8 in two rows of four), One row, or Two rows. In band and head to head, the song list's picker shows each player's part for that song (left/right changes the instrument, green the difficulty); a player whose instrument the song doesn't have sits out. Any player's Start (or Esc) pauses. Results show every player's card; green opens one player's full analysis.
+Layouts: Auto (up to 4 side by side, 5 to 8 in two rows of four), One row, or Two rows. Players pick from the parts their controller plays: a guitar any 5-fret part (guitar, bass, rhythm, keys, co-op), a drum kit drums, the keyboard anything. In band and head to head, the song list's picker shows each player's part for that song (left/right changes the instrument, green the difficulty); a player whose instrument the song doesn't have sits out. Any player's Start (or Esc) pauses. Results show every player's card; green opens one player's full analysis.
 
 Every player's run is recorded under their profile. Band saves are part of the recording, so runs still re-simulate exactly. `jam --song <folder> --players 4 --autoplay [--mode h2h] [--layout rows]` plays a song with bots on every part (for trying layouts).
 

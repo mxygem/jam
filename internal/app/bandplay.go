@@ -52,7 +52,10 @@ type BandPlay struct {
 	joins    joinPresses
 	endAt    float64 // party: when the song ended (the scores show briefly)
 	next     *partyLoad
-	results  []*seatResult
+
+	vote         *skipVote // party: a vote to skip the song
+	voteFailedAt float64   // song time the last vote failed
+	results      []*seatResult
 }
 
 // NewBandPlay starts a song for the band.
@@ -174,7 +177,7 @@ func (p *BandPlay) Update(a *App) error {
 		}
 		if s.mapper == nil { // sitting out: Start / green opens their menu
 			if p.party && hasAct(acts, action.MenuConfirm) {
-				p.openSeatMenu(a, s)
+				p.startPressed(a, s)
 			}
 			continue
 		}
@@ -186,7 +189,7 @@ func (p *BandPlay) Update(a *App) error {
 			for _, mp := range s.mapped {
 				if mp.Action == action.Start && mp.Down {
 					if p.party {
-						p.openSeatMenu(a, s)
+						p.startPressed(a, s)
 					} else {
 						pauseReq = true
 					}
@@ -234,6 +237,12 @@ func (p *BandPlay) Update(a *App) error {
 	p.judge(a, now)
 	p.updateStems()
 	p.drop(a)
+	if p.party {
+		p.updateVote(a, now)
+		if p.endAt > 0 {
+			return nil // skipped by vote
+		}
+	}
 
 	if p.failed {
 		p.finish(a, false)
@@ -594,6 +603,13 @@ func (p *BandPlay) drawTop(dst *ebiten.Image, a *App, rn float64) {
 		label = "PARTY"
 		if len(p.seats) < MaxPlayers {
 			label += "  ·  press START to join"
+		}
+		if p.vote != nil {
+			now := clock.Now()
+			if p.paused {
+				now = p.pauseClock
+			}
+			label = p.voteLabel(now)
 		}
 	}
 	render.Text(dst, label, render.CondBold, 30, render.ScreenW/2, 6, th.Text, render.Center)

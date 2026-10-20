@@ -122,7 +122,7 @@ func TestGuitarFlowMenuToResults(t *testing.T) {
 			h.tap(bitDPadDown)
 		}
 	}
-	h.tap(bitB) // red: back
+	h.tap(bitA) // green: back to the song list
 	h.until("song select", 2, sceneIs[*SongSelect](h), nil)
 }
 

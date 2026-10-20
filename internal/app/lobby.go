@@ -101,7 +101,7 @@ func (l *Lobby) card(a *App, m *member) *lobbyCard {
 				}
 			}},
 		Item{Label: "Instrument", Value: func() string { return m.inst.Title() },
-			Adjust: func(d int) { m.inst = cyclePart(m.inst, d, nil) }},
+			Adjust: func(d int) { m.inst = cyclePart(m.inst, d, m.parts(nil)) }},
 		Item{Label: "Difficulty", Value: func() string { return m.diff.Title() },
 			Adjust: func(d int) { m.diff = cycleDiff(m.diff, d) }},
 		Item{Label: "Ready", Activate: func() {

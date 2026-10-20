@@ -253,10 +253,10 @@ func TestPartyDropInAndOut(t *testing.T) {
 	if s.menu == nil || p.paused {
 		t.Fatal("Start opens the player's own menu without pausing")
 	}
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 4; i++ {
 		h.tapOn(1, bitDPadDown)
 	}
-	if s.menu == nil || s.menu.Sel != 3 {
+	if s.menu == nil || s.menu.Sel != 4 {
 		t.Fatalf("menu %v sel %d", s.menu != nil, func() int {
 			if s.menu == nil {
 				return -1
@@ -369,4 +369,103 @@ func TestMultiplayerScreens2(t *testing.T) {
 	h.tap(bitA)
 	h.idle(0.2)
 	h.shot("mp-profiles")
+}
+
+func TestPartySkipVote(t *testing.T) {
+	h := newHarness(t)
+	withDemoLibrary(h)
+	a := h.a
+	b := newBand(modeParty)
+	for i := 0; i < 3; i++ {
+		b.join(a, device{src: input.SrcXInput, index: i})
+	}
+	a.Band = b
+	a.scene = NewPartyNext(a, b)
+	p := h.waitBandPlay()
+	h.until("5 s in", 30, func() bool { return p.songNow(h.now) > 5 }, nil)
+	// player 1 starts a vote from their menu
+	h.tapOn(0, bitStart)
+	for i := 0; i < 3; i++ {
+		h.tapOn(0, bitDPadDown)
+	}
+	h.tapOn(0, bitA)
+	if p.vote == nil || p.yesVotes() != 1 || p.seats[0].menu != nil {
+		t.Fatal("the vote should start with player 1's yes and close their menu")
+	}
+	if p.endAt > 0 {
+		t.Fatal("1 of 3 isn't enough")
+	}
+	// player 2 votes yes with Start: 2 of 3 skips
+	h.tapOn(1, bitStart)
+	if p.seats[1].menu != nil {
+		t.Fatal("Start during a vote is a yes, not the menu")
+	}
+	if p.endAt == 0 {
+		t.Fatal("2 of 3 should skip the song")
+	}
+	h.until("next song", 30, func() bool {
+		q, ok := a.scene.(*BandPlay)
+		return ok && q != p
+	}, nil)
+	// a vote no one else joins runs out
+	q := a.scene.(*BandPlay)
+	h.until("5 s in", 30, func() bool { return q.songNow(h.now) > 5 }, nil)
+	q.voteSkip(a, q.seats[2].m)
+	h.until("vote closes", skipVoteTime+2, func() bool { return q.vote == nil }, nil)
+	if q.endAt > 0 || q.voteFailedAt == 0 || q.canStartVote(h.now) {
+		t.Fatal("the vote should fail and a new one wait")
+	}
+}
+
+func TestPartsFollowTheController(t *testing.T) {
+	h := newHarness(t)
+	a := h.a
+	b := newBand(modeBand)
+	a.Settings.LastInstrument = "drums"
+	g := b.join(a, device{src: input.SrcXInput, index: 0})
+	if g.inst != chart.Guitar {
+		t.Fatalf("a guitar whose profile last played drums starts on %s", g.inst.Title())
+	}
+	seen := map[chart.Instrument]bool{}
+	for i := 0; i < 12; i++ {
+		g.inst = cyclePart(g.inst, 1, g.parts(nil))
+		seen[g.inst] = true
+	}
+	if seen[chart.Drums] || !seen[chart.Bass] || !seen[chart.Keys] || !seen[chart.Rhythm] {
+		t.Fatalf("guitar parts: %v", seen)
+	}
+	kit := b.join(a, device{src: input.SrcMIDI, index: 0})
+	if kit.inst != chart.Drums || cyclePart(kit.inst, 1, kit.parts(nil)) != chart.Drums {
+		t.Fatal("a drum kit plays drums")
+	}
+	// a song with guitar and drums only: bass isn't offered to the guitar
+	song := []chart.Instrument{chart.Guitar, chart.Drums}
+	if got := g.parts(song); len(got) != 1 || got[0] != chart.Guitar {
+		t.Fatalf("guitar parts in a guitar+drums song: %v", got)
+	}
+	g.inst = chart.Bass
+	if cyclePart(g.inst, 1, g.parts(song)) != chart.Guitar {
+		t.Fatal("a part the song lacks moves to one it has")
+	}
+}
+
+// TestSkipVoteScreen draws a party skip vote (JAM_SHOTS only).
+func TestSkipVoteScreen(t *testing.T) {
+	if testing.Short() || os.Getenv("JAM_SHOTS") == "" {
+		t.Skip("set JAM_SHOTS to draw the skip vote")
+	}
+	h := newHarness(t)
+	withDemoLibrary(h)
+	a := h.a
+	b := newBand(modeParty)
+	for i := 0; i < 3; i++ {
+		b.join(a, device{src: input.SrcXInput, index: i})
+	}
+	a.Band = b
+	a.scene = NewPartyNext(a, b)
+	p := h.waitBandPlay()
+	h.until("3 s in", 10, func() bool { return p.songNow(h.now) > 3 }, nil)
+	p.voteSkip(a, p.seats[0].m)
+	h.idle(0.5)
+	h.shot("mp-skip-vote")
 }

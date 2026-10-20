@@ -159,9 +159,7 @@ func (b *Band) join(a *App, d device) *member {
 	}
 	m := &member{prof: p, dev: d}
 	m.setProfile(a, p)
-	if d.src == input.SrcMIDI {
-		m.inst = chart.Drums
-	}
+	m.fitPart()
 	b.Members = append(b.Members, m)
 	log.Printf("band: %s joined on %s (%s)", p.Name, d.name(a), m.partLabel())
 	return m
@@ -176,6 +174,7 @@ func (m *member) setProfile(a *App, p *profile.Profile) {
 	if inst, ok := chart.ParseInstrument(set.LastInstrument); ok {
 		m.inst = inst
 	}
+	m.fitPart()
 	m.diff = chart.Expert
 	if d, ok := chart.ParseDifficulty(set.LastDifficulty); ok {
 		m.diff = d
@@ -307,18 +306,66 @@ func ordinal(n int) string {
 // partChoices are the instruments a player can pick.
 var partChoices = []chart.Instrument{chart.Guitar, chart.Bass, chart.Rhythm, chart.Keys, chart.Drums, chart.GuitarCoop}
 
+// cyclePart steps through the allowed instruments. With none allowed the
+// instrument stays; one that isn't allowed moves to the first (or last).
 func cyclePart(cur chart.Instrument, d int, allowed []chart.Instrument) chart.Instrument {
-	if len(allowed) == 0 {
-		allowed = partChoices
+	n := len(allowed)
+	if n == 0 {
+		return cur
 	}
-	i := 0
 	for j, x := range allowed {
 		if x == cur {
-			i = j
+			return allowed[((j+sign(d))%n+n)%n]
 		}
 	}
-	n := len(allowed)
-	return allowed[((i+sign(d))%n+n)%n]
+	if d < 0 {
+		return allowed[n-1]
+	}
+	return allowed[0]
+}
+
+// fretParts are the parts played on a 5-fret guitar controller.
+var fretParts = []chart.Instrument{chart.Guitar, chart.Bass, chart.Rhythm, chart.Keys, chart.GuitarCoop}
+
+// partsFor are the parts a controller can play: a drum kit plays drums, a
+// guitar any 5-fret part (guitar, bass, rhythm, keys, co-op), and the
+// keyboard anything.
+func partsFor(d device) []chart.Instrument {
+	switch d.src {
+	case input.SrcMIDI:
+		return []chart.Instrument{chart.Drums}
+	case input.SrcKeyboard:
+		return partChoices
+	}
+	return fretParts
+}
+
+// parts are the member's playable parts, narrowed to what a song has when
+// songParts isn't nil.
+func (m *member) parts(songParts []chart.Instrument) []chart.Instrument {
+	can := partsFor(m.dev)
+	if songParts == nil {
+		return can
+	}
+	var out []chart.Instrument
+	for _, i := range can {
+		for _, j := range songParts {
+			if i == j {
+				out = append(out, i)
+			}
+		}
+	}
+	return out
+}
+
+// fitPart moves the member to a part their controller can play.
+func (m *member) fitPart() {
+	for _, i := range partsFor(m.dev) {
+		if i == m.inst {
+			return
+		}
+	}
+	m.inst = partsFor(m.dev)[0]
 }
 
 func cycleDiff(cur chart.Difficulty, d int) chart.Difficulty {

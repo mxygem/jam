@@ -263,6 +263,12 @@ func (s *seat) draw(dst *ebiten.Image, a *App, p *BandPlay, sl slot, rn float64,
 	s.hw.Cfg = hc
 	info := render.SeatInfo{Name: s.m.prof.Name, Color: profileColor(s.m.prof), Part: s.m.partLabel(), Rank: rank,
 		ShowRock: s.playing() && !s.set.Engine.NoFail}
+	if p.vote != nil && s.joining == nil {
+		info.Banner = "Skip this song? START to vote yes"
+		if p.vote.yes[s.m] {
+			info.Banner = "You voted to skip"
+		}
+	}
 	if s.playing() {
 		f := &s.frame
 		st := s.eng.Stats()
