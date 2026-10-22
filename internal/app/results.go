@@ -5,19 +5,25 @@ import (
 	"image/color"
 	"math"
 	"path/filepath"
+	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 
 	"github.com/mxygem/jam/internal/action"
 	"github.com/mxygem/jam/internal/chart"
+	"github.com/mxygem/jam/internal/config"
+	"github.com/mxygem/jam/internal/osopen"
 	"github.com/mxygem/jam/internal/render"
 	"github.com/mxygem/jam/internal/replay"
 )
 
-// Results shows the score and the post-play analysis of a recording.
+// Results shows the score and the post-play analysis of a recording, the
+// run visuals, and the player's history on the part.
 type Results struct {
 	rec    *replay.Recording
 	an     *replay.Analysis
+	view   *replay.RunView
 	path   string
 	c      *chart.Chart
 	t      *chart.Track
@@ -25,9 +31,31 @@ type Results struct {
 	tab    int
 	scroll int
 	back   func(a *App)
+
+	// History loads in the background the first time it's needed.
+	histOnce sync.Once
+	histMu   sync.Mutex
+	hist     *replay.History
+	histDone bool
 }
 
-var resultTabs = []string{"Sections", "Misses", "Breakdown"}
+// Results pages: the overview (its right panel shows one of the first
+// three), the run visuals, and the history.
+var resultTabs = []string{"Sections", "Misses", "Breakdown", "Timing", "Chart", "Frets", "Report card", "Progress", "Section history", "Note history", "Timing history"}
+
+const (
+	tabTiming = 3 + iota
+	tabChart
+	tabFrets
+	tabCard
+	tabProgress
+	tabSectionHist
+	tabNoteHist
+	tabTimingHist
+)
+
+// tab groups, for the separators in the tab bar
+var resultGroups = []int{3, 7}
 
 // NewResults builds the results screen. c/t/song may be nil when the chart
 // a recording was made against is no longer available.
@@ -35,12 +63,118 @@ func NewResults(a *App, rec *replay.Recording, path string, c *chart.Chart, t *c
 	r := &Results{rec: rec, path: path, c: c, t: t, song: song}
 	if c != nil && t != nil {
 		r.an = replay.Analyze(rec, c, t)
+		r.view = replay.BuildRunView(rec, c, t, r.an)
 	}
 	r.back = func(a *App) { a.SetScene(NewSongSelect(a)) }
 	return r
 }
 
+// startHistory gathers the player's other runs of this part.
+func (r *Results) startHistory(a *App) {
+	if r.c == nil || r.rec == nil {
+		return
+	}
+	r.histOnce.Do(func() {
+		rec := r.rec
+		inst, _ := chart.ParseInstrument(rec.Instrument)
+		diff, _ := chart.ParseDifficulty(rec.Difficulty)
+		full := r.c.Track(inst, diff)
+		if full == nil {
+			full = r.t
+		}
+		owns := func(id string) bool { return id == rec.Profile }
+		if a != nil && a.Profiles != nil {
+			owns = a.Profiles.OwnerOf(rec.Profile)
+		}
+		song := r.song
+		go func() {
+			hash := ""
+			if song == nil {
+				song, _ = chart.LoadSongFolder(rec.Song.Dir)
+			}
+			if song != nil {
+				hash = song.ChartHash()
+			}
+			_, h := replay.BuildReport(rec, r.path, r.c, full, hash, config.RunsDir(), owns)
+			r.histMu.Lock()
+			r.hist, r.histDone = h, true
+			r.histMu.Unlock()
+		}()
+	})
+}
+
+func (r *Results) history() (*replay.History, bool) {
+	r.histMu.Lock()
+	defer r.histMu.Unlock()
+	return r.hist, r.histDone
+}
+
+// openReport writes the HTML report and opens it in the browser.
+func (r *Results) openReport(a *App) {
+	if r.view == nil {
+		a.Toast("The chart for this run isn't available, so there's no report.")
+		return
+	}
+	h, done := r.history()
+	if !done {
+		a.Toast("Still gathering your history; try again in a moment.")
+		return
+	}
+	name := replay.ReportName(r.path)
+	if r.path == "" {
+		name = "run.html"
+	}
+	path := filepath.Join(config.ReportsDir(), name)
+	if err := replay.SaveReport(path, r.view, h); err != nil {
+		a.Toast("Couldn't write the report: " + err.Error())
+		return
+	}
+	if err := osopen.Open(path); err != nil {
+		a.Toast("Report saved to " + path)
+		return
+	}
+	a.Toast("Opened the report in your browser")
+}
+
+// tabRects are the tab bar's labels, for mouse clicks.
+func tabRects() [][4]float64 {
+	var out [][4]float64
+	x := 96.0
+	for i, name := range resultTabs {
+		for _, g := range resultGroups {
+			if g == i {
+				x += 26
+			}
+		}
+		w, _ := render.Measure(name, render.CondBold, 28)
+		out = append(out, [4]float64{x, 206, w, 40})
+		x += w + 30
+	}
+	return out
+}
+
 func (r *Results) Update(a *App) error {
+	r.startHistory(a)
+	if inpututil.IsKeyJustPressed(ebiten.KeyB) {
+		r.openReport(a)
+	}
+	if m := &a.Mouse; m.Click {
+		for i, rc := range tabRects() {
+			if m.In(rc[0]-10, rc[1]-6, rc[2]+20, rc[3]+12) {
+				r.tab, r.scroll = i, 0
+			}
+		}
+		if m.In(1600, 40, 260, 56) {
+			r.openReport(a)
+		}
+	}
+	if w := a.Mouse.Wheel; w != 0 {
+		if w > 0 {
+			r.scroll = max(0, r.scroll-1)
+		} else {
+			r.scroll++
+		}
+	}
 	for _, act := range a.MenuActs {
 		switch act {
 		case action.MenuLeft:
@@ -106,8 +240,16 @@ func (r *Results) Draw(dst *ebiten.Image, a *App) {
 	}
 	Header(dst, title, fmt.Sprintf("%s   %s %s   %s", rec.Song.Artist, chartTitle(rec.Difficulty), chartTitle(rec.Instrument), rec.Started.Format("Jan 2 15:04")))
 
+	r.drawTabBar(dst)
+	r.drawReportButton(dst, a)
+	if r.tab >= tabTiming {
+		r.drawPage(dst, a)
+		r.drawFooter(dst, a)
+		return
+	}
+
 	// --- summary (left) ---
-	lx, ly := 96.0, 230.0
+	lx, ly := 96.0, 272.0
 	Panel(dst, lx-24, ly-20, 860, 300)
 	render.TextShadow(dst, fmt.Sprintf("%d", res.Score), render.Display, 96, lx, ly-10, th.Text, render.Left)
 	var b render.Batch
@@ -139,7 +281,7 @@ func (r *Results) Draw(dst *ebiten.Image, a *App) {
 	render.Text(dst, fmt.Sprintf("Star power phrases %d/%d, activated %d", res.SPHit, res.SPPhrases, res.SPActivated), render.Cond, 24, lx, ly+222, th.TextDim, render.Left)
 
 	// --- timing histogram ---
-	hx, hy, hw, hh := 96.0, 560.0, 812.0, 300.0
+	hx, hy, hw, hh := 96.0, 600.0, 812.0, 280.0
 	Panel(dst, hx-24, hy-20, hw+48, hh+120)
 	render.Text(dst, "TIMING", render.CondBold, 26, hx, hy, th.TextDim, render.Left)
 	if r.an != nil && r.an.Hits > 0 {
@@ -177,35 +319,109 @@ func (r *Results) Draw(dst *ebiten.Image, a *App) {
 	}
 
 	// --- tabs (right) ---
-	rx, ry, rw := 1010.0, 230.0, 814.0
-	Panel(dst, rx-24, ry-20, rw+48, 770)
-	x := rx
+	rx, ry, rw := 1010.0, 272.0, 814.0
+	Panel(dst, rx-24, ry-20, rw+48, 728)
+	if r.an == nil {
+		render.Text(dst, "The chart for this run isn't available, so only the score is shown.", render.UI, 24, rx, ry+10, th.TextDim, render.Left)
+	} else {
+		r.drawTab(dst, rx, ry, rw)
+	}
+	r.drawFooter(dst, a)
+}
+
+// drawTabBar draws every page's name with the current one underlined.
+func (r *Results) drawTabBar(dst *ebiten.Image) {
+	rects := tabRects()
 	for i, name := range resultTabs {
+		rc := rects[i]
 		c := th.TextDim
 		if i == r.tab {
 			c = th.Text
-			w, _ := render.Measure(name, render.CondBold, 30)
-			render.FillRect(dst, x, ry+40, w, 4, th.Accent)
+			render.FillRect(dst, rc[0], rc[1]+38, rc[2], 4, th.Accent)
 		}
-		render.Text(dst, name, render.CondBold, 30, x, ry, c, render.Left)
-		w, _ := render.Measure(name, render.CondBold, 30)
-		x += w + 40
+		for _, g := range resultGroups {
+			if g == i {
+				render.FillRect(dst, rc[0]-28, rc[1]+6, 2, 28, render.WithAlpha(th.TextDim, 0.4))
+			}
+		}
+		render.Text(dst, name, render.CondBold, 28, rc[0], rc[1], c, render.Left)
 	}
-	if r.an == nil {
-		render.Text(dst, "The chart for this run isn't available, so only the score is shown.", render.UI, 24, rx, ry+80, th.TextDim, render.Left)
-	} else {
-		r.drawTab(dst, rx, ry+70, rw)
+}
+
+func (r *Results) drawReportButton(dst *ebiten.Image, a *App) {
+	if r.view == nil {
+		return
 	}
-	foot := "Enter / green back     Left/right tabs     Up/down scroll"
+	x, y, w, h := 1600.0, 40.0, 260.0, 56.0
+	c := render.WithAlpha(th.Panel, 1)
+	if a.Mouse.In(x, y, w, h) {
+		c = render.Lighten(c, 0.12)
+	}
+	render.RoundRect(dst, x, y, w, h, 14, c)
+	render.Text(dst, "Open in browser (B)", render.CondBold, 26, x+w/2, y+12, th.Text, render.Center)
+}
+
+// drawPage draws one of the full-width visual pages.
+func (r *Results) drawPage(dst *ebiten.Image, a *App) {
+	Panel(dst, 72, 256, 1776, 744)
+	if r.view == nil {
+		render.Text(dst, "The chart for this run isn't available, so there's nothing to draw.", render.UI, 26, vizX, vizY+20, th.TextDim, render.Left)
+		return
+	}
+	v := r.view
+	m := &a.Mouse
+	switch r.tab {
+	case tabTiming:
+		drawTimingView(dst, v, m)
+	case tabChart:
+		rows, vis := stripRows(v.Length, len(v.Rows))
+		r.scroll = min(r.scroll, max(0, rows-vis))
+		drawChartView(dst, v, r.scroll, m)
+	case tabFrets:
+		r.scroll = drawFretView(dst, v, r.scroll)
+	case tabCard:
+		r.scroll = min(r.scroll, max(0, len(reportRows(v))-cardVisible()))
+		drawReportCard(dst, v, r.scroll)
+	default:
+		h, done := r.history()
+		switch {
+		case !done:
+			render.Text(dst, "Gathering your earlier runs of this part...", render.UI, 26, vizX, vizY+20, th.TextDim, render.Left)
+			return
+		case h == nil || len(h.Attempts) == 0:
+			render.Text(dst, "No runs of this part to compare yet.", render.UI, 26, vizX, vizY+20, th.TextDim, render.Left)
+			return
+		case len(h.Attempts) == 1:
+			render.Text(dst, "This is your only run of this part so far.", render.UIBold, 30, vizX, vizY+20, th.Text, render.Left)
+			render.Text(dst, "Play it again and these pages show how each section, note and your timing change across attempts.", render.UI, 26, vizX, vizY+70, th.TextDim, render.Left)
+			return
+		}
+		switch r.tab {
+		case tabProgress:
+			drawProgressView(dst, h)
+		case tabSectionHist:
+			r.scroll = drawSectionHistory(dst, h, r.scroll)
+		case tabNoteHist:
+			rows, vis := stripRows(h.Length, len(h.Rows))
+			r.scroll = min(r.scroll, max(0, rows-vis))
+			drawNoteHistory(dst, h, r.scroll, m)
+		case tabTimingHist:
+			r.scroll = drawTimingHistory(dst, h, r.scroll)
+		}
+	}
+}
+
+func (r *Results) drawFooter(dst *ebiten.Image, a *App) {
+	foot := "Enter / green back     Left/right pages     Up/down scroll"
 	if r.song != nil && a.Band == nil {
-		foot = "Enter / green song list     Tab / yellow retry     Left/right tabs     Up/down scroll"
+		foot = "Enter / green song list     Tab / yellow retry     Left/right pages     Up/down scroll"
 	}
 	if a.Run != nil && r.song != nil {
 		next := "finish playlist"
 		if e := a.Run.Next(); e != nil {
 			next = "next: " + truncateW(e.Title, render.Cond, 26, 520)
 		}
-		foot = fmt.Sprintf("Enter / green %s     Tab / yellow retry     Left/right tabs     Esc / red leave playlist (%d of %d)", next, a.Run.idx+1, len(a.Run.list.Entries))
+		foot = fmt.Sprintf("Enter / green %s     Tab / yellow retry     Left/right pages     Esc / red leave playlist (%d of %d)", next, a.Run.idx+1, len(a.Run.list.Entries))
 	}
 	if r.path != "" {
 		foot += "     saved: " + filepath.Base(r.path)

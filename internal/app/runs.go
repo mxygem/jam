@@ -194,5 +194,5 @@ func (r *Runs) Draw(dst *ebiten.Image, a *App) {
 	if r.mine {
 		who = "Tab / yellow: everyone's"
 	}
-	Footer(dst, "Enter open     "+who+"     Esc back     Command line: jam analyze <file>")
+	Footer(dst, "Enter open     "+who+"     Esc back     Command line: jam analyze --html <file>")
 }

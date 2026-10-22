@@ -221,6 +221,7 @@ func RunsDir() string      { return filepath.Join(Dir(), "runs") }
 func SongsDir() string     { return filepath.Join(Dir(), "songs") }
 func ThemesDir() string    { return filepath.Join(Dir(), "themes") }
 func ProfilesDir() string  { return filepath.Join(Dir(), "profiles") }
+func ReportsDir() string   { return filepath.Join(Dir(), "reports") }
 
 // Load reads settings, falling back to defaults. On first run the Clone Hero
 // song folders are imported.

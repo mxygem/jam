@@ -49,6 +49,35 @@ type MissDetail struct {
 	Lanes   string
 	Kind    string
 	Reason  string
+	// Category groups reasons: see the Miss* constants.
+	Category string
+}
+
+// Miss categories, for grouping misses in charts.
+const (
+	MissEarly = "early" // played, but before the window opened
+	MissLate  = "late"  // played, but after the window closed
+	MissFrets = "frets" // strummed in time with the wrong frets
+	MissPad   = "pad"   // drums: wrong pad, or tom for cymbal
+	MissNone  = "none"  // nothing played near it
+)
+
+// MissCategories lists the categories in display order.
+var MissCategories = []string{MissEarly, MissLate, MissFrets, MissPad, MissNone}
+
+// MissCategoryTitle names a category for people.
+func MissCategoryTitle(c string) string {
+	switch c {
+	case MissEarly:
+		return "Too early"
+	case MissLate:
+		return "Too late"
+	case MissFrets:
+		return "Wrong frets"
+	case MissPad:
+		return "Wrong pad"
+	}
+	return "Not played"
 }
 
 // StreakBreak is a moment the streak reset.
@@ -211,9 +240,10 @@ func Analyze(rec *Recording, c *chart.Chart, t *chart.Track) *Analysis {
 				if a.Drums {
 					lanes = drumLaneName(t.DrumMode, j.Lane, n.Cymbals&(1<<j.Lane) != 0)
 				}
+				reason, cat := a.missReason(rec, t, j)
 				a.Misses = append(a.Misses, MissDetail{
 					Note: j.Note, Time: n.Time, Section: a.Sections[si].Name, Lanes: lanes,
-					Kind: kindOf(n, j.Lane), Reason: a.missReason(rec, t, j),
+					Kind: kindOf(n, j.Lane), Reason: reason, Category: cat,
 				})
 			}
 		case engine.Overstrum, engine.Overhit:
@@ -284,7 +314,7 @@ func (a *Analysis) stats() {
 }
 
 // missReason looks at the inputs around a missed note to explain it.
-func (a *Analysis) missReason(rec *Recording, t *chart.Track, j engine.Judgment) string {
+func (a *Analysis) missReason(rec *Recording, t *chart.Track, j engine.Judgment) (reason, category string) {
 	n := &t.Notes[j.Note]
 	window := 0.25
 	early, late := rec.Settings.Windows(a.Drums)
@@ -311,21 +341,21 @@ func (a *Analysis) missReason(rec *Recording, t *chart.Track, j engine.Judgment)
 		switch {
 		case wrongType:
 			if n.Cymbals&(1<<j.Lane) != 0 {
-				return "hit the tom, chart has a cymbal"
+				return "hit the tom, chart has a cymbal", MissPad
 			}
-			return "hit the cymbal, chart has a tom"
+			return "hit the cymbal, chart has a tom", MissPad
 		case !math.IsInf(bestDt, 1):
 			return earlyLate(bestDt)
 		case otherLane != "":
-			return "hit " + otherLane + " instead"
+			return "hit " + otherLane + " instead", MissPad
 		}
-		return "no hit"
+		return "no hit", MissNone
 	}
 
 	// Guitar: overstrums that targeted this note mean wrong frets.
 	for _, o := range rec.Judgments {
 		if o.Result == engine.Overstrum && o.Note == j.Note {
-			return fmt.Sprintf("wrong frets: held %s, needed %s", chart.FretString(o.Held), n.LaneString())
+			return fmt.Sprintf("wrong frets: held %s, needed %s", chart.FretString(o.Held), n.LaneString()), MissFrets
 		}
 	}
 	bestDt := math.Inf(1)
@@ -341,20 +371,20 @@ func (a *Analysis) missReason(rec *Recording, t *chart.Track, j engine.Judgment)
 		if bestDt < -early || bestDt > late {
 			return earlyLate(bestDt)
 		}
-		return "strummed in time, frets didn't match"
+		return "strummed in time, frets didn't match", MissFrets
 	}
 	if n.Kind == chart.HOPO || n.Kind == chart.Tap {
-		return "no strum and no hammer-on"
+		return "no strum and no hammer-on", MissNone
 	}
-	return "no strum"
+	return "no strum", MissNone
 }
 
-func earlyLate(dt float64) string {
+func earlyLate(dt float64) (string, string) {
 	ms := math.Abs(dt * 1000)
 	if dt < 0 {
-		return fmt.Sprintf("%.0f ms too early", ms)
+		return fmt.Sprintf("%.0f ms too early", ms), MissEarly
 	}
-	return fmt.Sprintf("%.0f ms too late", ms)
+	return fmt.Sprintf("%.0f ms too late", ms), MissLate
 }
 
 // fretLead measures how long before each strum the held frets last changed.

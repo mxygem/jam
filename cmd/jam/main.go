@@ -2,6 +2,7 @@
 //
 //	jam                       start the game
 //	jam analyze <run file>    print the analysis of a recorded playthrough
+//	                          (--html --open: visual report with the player's history)
 //	jam probe [seconds]       print raw XInput / MIDI events (no window)
 //	jam check <folder>...     parse every chart in the folders and report problems
 //	jam demo <folder>         write the built-in demo song
@@ -24,6 +25,8 @@ import (
 	"github.com/mxygem/jam/internal/engine"
 	"github.com/mxygem/jam/internal/input"
 	"github.com/mxygem/jam/internal/library"
+	"github.com/mxygem/jam/internal/osopen"
+	"github.com/mxygem/jam/internal/profile"
 	"github.com/mxygem/jam/internal/replay"
 	"github.com/mxygem/jam/internal/rich"
 )
@@ -71,6 +74,10 @@ func analyze(args []string) int {
 	fs := flag.NewFlagSet("analyze", flag.ExitOnError)
 	window := fs.Float64("window", 0, "re-simulate with this hit window in ms (each side)")
 	chartDir := fs.String("chart", "", "song folder to analyze against (default: the folder the run was played from)")
+	htmlOut := fs.Bool("html", false, "write the visual report (an HTML page with this run and the player's history on the part)")
+	out := fs.String("out", "", "with --html: where to write it (default: the reports folder)")
+	open := fs.Bool("open", false, "with --html: open the report in the browser")
+	everyone := fs.Bool("everyone", false, "with --html: history includes every player's runs, not just this player's")
 	fs.Parse(args)
 	if fs.NArg() == 0 {
 		files, _ := replay.List(config.RunsDir())
@@ -83,6 +90,10 @@ func analyze(args []string) int {
 		args = append(args, files[0])
 		fs.Float64Var(window, "window", *window, "")
 		fs.StringVar(chartDir, "chart", *chartDir, "")
+		fs.BoolVar(htmlOut, "html", *htmlOut, "")
+		fs.StringVar(out, "out", *out, "")
+		fs.BoolVar(open, "open", *open, "")
+		fs.BoolVar(everyone, "everyone", *everyone, "")
 		fs.Parse(args)
 	}
 	rec, err := replay.Load(fs.Arg(0))
@@ -110,12 +121,35 @@ func analyze(args []string) int {
 	}
 	inst, _ := chart.ParseInstrument(rec.Instrument)
 	diff, _ := chart.ParseDifficulty(rec.Difficulty)
-	t := c.Track(inst, diff)
-	if t == nil {
+	full := c.Track(inst, diff)
+	if full == nil {
 		fmt.Fprintln(os.Stderr, "track not found in chart")
 		return 1
 	}
+	t := replay.TrackFor(rec, full)
 	fmt.Print(replay.Analyze(rec, c, t).Text())
+	if *htmlOut {
+		var owns func(string) bool
+		if !*everyone {
+			st, _ := profile.Load(config.ProfilesDir())
+			owns = st.OwnerOf(rec.Profile)
+		}
+		v, h := replay.BuildReport(rec, fs.Arg(0), c, full, song.ChartHash(), config.RunsDir(), owns)
+		path := *out
+		if path == "" {
+			path = filepath.Join(config.ReportsDir(), replay.ReportName(fs.Arg(0)))
+		}
+		if err := replay.SaveReport(path, v, h); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Printf("\nReport: %s (%d attempts in the history)\n", path, len(h.Attempts))
+		if *open {
+			if err := osopen.Open(path); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+			}
+		}
+	}
 	if *window > 0 {
 		set := rec.Settings
 		set.EarlyWindow, set.LateWindow = *window/1000, *window/1000

@@ -1,0 +1,683 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<style>
+:root {
+  color-scheme: dark;
+  --page: #0b0d16;
+  --surface: #131726;
+  --surface-2: #1a1f33;
+  --ink: #f2f4f8;
+  --ink-2: #c3c8d6;
+  --muted: #8c93a8;
+  --grid: #232a40;
+  --axis: #39415c;
+  --ring: rgba(255,255,255,0.10);
+  --lane-green: #2bd65a; --lane-red: #f23a3a; --lane-yellow: #ffd01f;
+  --lane-blue: #2f86ff; --lane-orange: #ff8a1f; --lane-open: #b05cff; --lane-kick: #ff8a1f;
+  --early: #5cb8ff; --late: #ffa44c; --ontime: #9aa1b4;
+  --miss: #ff4d5e; --over: #ec835a; --good: #4ae08a;
+  --sp: #7ee8ff; --accent: #ff6a2b;
+  --cat-frets: #9085e9; --cat-pad: #d55181; --cat-none: #6c7389;
+  --heat: 255, 77, 94; /* miss-rate ramp hue */
+  --heat-base: 26, 31, 51;
+}
+@media (prefers-color-scheme: light) {
+  :root:where(:not([data-theme="dark"])) {
+    color-scheme: light;
+    --page: #f4f4f1; --surface: #fcfcfb; --surface-2: #f0efec;
+    --ink: #0b0b0b; --ink-2: #3a3936; --muted: #6b6a65;
+    --grid: #e7e6e0; --axis: #c3c2b7; --ring: rgba(11,11,11,0.12);
+    --lane-yellow: #e0b000; --lane-green: #1fae47;
+    --early: #2a78d6; --late: #d95926; --ontime: #8a8983;
+    --miss: #d03b3b; --over: #c76a3a; --good: #0c8a2c; --sp: #0e9fc2; --accent: #e8551a;
+    --cat-frets: #6250d6; --cat-pad: #c4407a; --cat-none: #8a8983;
+    --heat: 208, 59, 59; --heat-base: 240, 239, 236;
+  }
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --page: #f4f4f1; --surface: #fcfcfb; --surface-2: #f0efec;
+  --ink: #0b0b0b; --ink-2: #3a3936; --muted: #6b6a65;
+  --grid: #e7e6e0; --axis: #c3c2b7; --ring: rgba(11,11,11,0.12);
+  --lane-yellow: #e0b000; --lane-green: #1fae47;
+  --early: #2a78d6; --late: #d95926; --ontime: #8a8983;
+  --miss: #d03b3b; --over: #c76a3a; --good: #0c8a2c; --sp: #0e9fc2; --accent: #e8551a;
+  --cat-frets: #6250d6; --cat-pad: #c4407a; --cat-none: #8a8983;
+  --heat: 208, 59, 59; --heat-base: 240, 239, 236;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--page); color: var(--ink); }
+body { font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 24px 16px 64px; }
+main { max-width: 1320px; margin: 0 auto; }
+header.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+h1 { font-size: 30px; line-height: 1.15; margin: 0; letter-spacing: -0.01em; }
+.sub { color: var(--muted); margin-top: 4px; }
+.themebtn { background: var(--surface); color: var(--ink-2); border: 1px solid var(--ring); border-radius: 8px; padding: 6px 12px; font: inherit; cursor: pointer; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 28px; }
+.stat { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 12px 14px; }
+.stat .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+.stat .v { font-size: 26px; font-weight: 650; margin-top: 2px; }
+.stat .v small { font-size: 14px; color: var(--muted); font-weight: 500; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 40px 0 12px; font-weight: 600; }
+.card { background: var(--surface); border: 1px solid var(--ring); border-radius: 14px; padding: 18px 18px 14px; margin-bottom: 16px; }
+.card h3 { margin: 0 0 2px; font-size: 18px; }
+.card .what { color: var(--muted); margin: 0 0 12px; font-size: 14px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--ink-2); font-size: 13px; margin: 8px 0 0; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.sw.dot { border-radius: 50%; }
+.sw.ring { border-radius: 50%; border: 2px solid var(--miss); background: transparent; }
+svg { display: block; overflow: visible; }
+svg text { fill: var(--muted); font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; }
+svg text.ink { fill: var(--ink-2); }
+.scroll { overflow-x: auto; }
+.tip { position: fixed; pointer-events: none; z-index: 10; background: var(--surface-2); color: var(--ink); border: 1px solid var(--ring); border-radius: 8px; padding: 8px 10px; font-size: 13px; line-height: 1.4; white-space: pre; box-shadow: 0 6px 24px rgba(0,0,0,0.35); display: none; max-width: 380px; }
+.tip b { font-weight: 650; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+td.num, th.num { text-align: right; }
+tr.dim td { color: var(--muted); }
+.bar { position: relative; width: 120px; height: 8px; border-radius: 4px; background: var(--grid); display: inline-block; vertical-align: middle; margin-right: 8px; overflow: hidden; }
+.bar > i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
+.stack { display: inline-flex; gap: 2px; height: 10px; vertical-align: middle; }
+.stack > i { display: block; height: 10px; border-radius: 2px; }
+.heat { display: grid; gap: 2px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.heat .h { color: var(--muted); padding: 2px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.heat .rl { color: var(--ink-2); padding: 4px 8px 4px 0; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.heat .c { border-radius: 4px; min-height: 30px; display: flex; align-items: center; justify-content: center; color: var(--ink); }
+.heat .c.empty { background: transparent; border: 1px dashed var(--grid); color: var(--muted); }
+.heat .c.cur { outline: 2px solid var(--ink-2); outline-offset: -2px; }
+.ramp { display: inline-block; width: 140px; height: 10px; border-radius: 3px; vertical-align: middle; margin: 0 6px; }
+.note { color: var(--muted); font-size: 14px; }
+.tips { margin: 0 0 28px; padding: 0; list-style: none; display: grid; gap: 6px; }
+.tips li { background: var(--surface); border: 1px solid var(--ring); border-left: 3px solid var(--accent); border-radius: 8px; padding: 8px 12px; color: var(--ink-2); }
+@media (max-width: 640px) { h1 { font-size: 24px; } .stat .v { font-size: 22px; } }
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <div>
+      <h1 id="title"></h1>
+      <div class="sub" id="subtitle"></div>
+    </div>
+    <button class="themebtn" id="theme" type="button">Light / dark</button>
+  </header>
+  <div class="stats" id="stats"></div>
+  <ul class="tips" id="tips"></ul>
+
+  <h2>This run</h2>
+  <section class="card">
+    <h3>Timing across the song</h3>
+    <p class="what">Every hit at the moment it happened, above the line late and below it early. The line follows your average over the last 25 hits. Misses and overstrums sit in the rows underneath; the bottom chart is your streak.</p>
+    <div id="scatter"></div>
+    <div class="legend">
+      <span><i class="sw dot" style="background:var(--early)"></i>early (more than 15 ms)</span>
+      <span><i class="sw dot" style="background:var(--ontime)"></i>on time</span>
+      <span><i class="sw dot" style="background:var(--late)"></i>late</span>
+      <span><i class="sw" style="background:var(--accent);height:3px"></i>running average</span>
+      <span><i class="sw" style="background:var(--miss)"></i>missed note</span>
+      <span><i class="sw" style="background:var(--over)"></i><span id="overname">overstrum</span></span>
+      <span><i class="sw" style="background:var(--sp)"></i>star power on</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h3>The chart, note by note</h3>
+    <p class="what">The whole part laid out left to right. Filled gems were hit, red rings were missed, faded ones the run never reached. Shaded stretches are star power phrases.</p>
+    <div id="strip"></div>
+    <div class="legend" id="striplegend"></div>
+  </section>
+
+  <section class="card">
+    <h3 id="heattitle">Frets by section</h3>
+    <p class="what">How often each <span class="lanenoun">fret</span> was missed in each section. Darker is worse; the numbers are misses over notes reached.</p>
+    <div class="scroll"><div id="heat" class="heat"></div></div>
+    <div class="legend"><span>0% missed<i class="ramp" id="ramp1"></i>100%</span><span>plain cells had no misses</span><span><i class="sw" style="border:1px dashed var(--axis)"></i>not reached</span></div>
+  </section>
+
+  <section class="card">
+    <h3>Section report card</h3>
+    <p class="what">Accuracy, what went wrong, and timing for every section.</p>
+    <div class="scroll"><table id="card"></table></div>
+    <div class="legend" id="catlegend"></div>
+  </section>
+
+  <div id="history"></div>
+</main>
+<div class="tip" id="tip"></div>
+<script type="application/json" id="data">{{DATA}}</script>
+<script>
+(() => {
+const D = JSON.parse(document.getElementById('data').textContent);
+const R = D.run, H = D.history;
+const NS = 'http://www.w3.org/2000/svg';
+const $ = (id) => document.getElementById(id);
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+function s(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function h(tag, attrs, html) {
+  const e = document.createElement(tag);
+  if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (html != null) e.innerHTML = html;
+  return e;
+}
+function esc(x) { return String(x).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function clock(t) { t = Math.max(0, t || 0); const m = Math.floor(t / 60); const sec = t - m * 60; return m + ':' + (sec < 10 ? '0' : '') + sec.toFixed(1); }
+function pct(x) { return (x * 100).toFixed(x >= 0.995 || x === 0 ? 0 : 1) + '%'; }
+function ms(x) { return (x > 0 ? '+' : '') + x.toFixed(1) + ' ms'; }
+function title(x) { return x ? x.charAt(0).toUpperCase() + x.slice(1) : ''; }
+
+const LANE = { green: '--lane-green', red: '--lane-red', yellow: '--lane-yellow', blue: '--lane-blue', orange: '--lane-orange', open: '--lane-open', kick: '--lane-kick' };
+const laneColor = (row, rows) => css(LANE[rows[row].color] || '--muted');
+const CATS = [['early', 'Too early', '--early'], ['late', 'Too late', '--late'], ['frets', 'Wrong frets', '--cat-frets'], ['pad', 'Wrong pad', '--cat-pad'], ['none', 'Not played', '--cat-none']];
+const catName = Object.fromEntries(CATS.map(c => [c[0], c[1]]));
+
+// Miss-rate ramp: one hue from the surface to full red.
+// Nothing missed stays neutral so any miss stands out.
+function heat(rate) {
+  const a = css('--heat').split(',').map(Number), b = css('--heat-base').split(',').map(Number);
+  const k = rate <= 0 ? 0 : 0.3 + 0.7 * Math.min(1, rate);
+  return 'rgb(' + b.map((v, i) => Math.round(v + (a[i] - v) * k)).join(',') + ')';
+}
+function heatInk(rate) { return rate > 0.55 ? '#fff' : css('--ink'); }
+
+// Tooltip: marks register {x, y, html} in a per-chart list; the nearest one
+// within reach shows.
+const tip = $('tip');
+function hover(svgOrEl, points, reach) {
+  reach = reach || 14;
+  svgOrEl.addEventListener('mousemove', (ev) => {
+    const r = svgOrEl.getBoundingClientRect();
+    const x = ev.clientX - r.left, y = ev.clientY - r.top;
+    let best = null, bd = reach * reach;
+    for (const p of points) {
+      const dx = p.x - x, dy = (p.y - y) * (p.yw || 1);
+      const d = dx * dx + dy * dy;
+      if (d < bd) { bd = d; best = p; }
+    }
+    if (!best) { tip.style.display = 'none'; return; }
+    tip.innerHTML = best.html;
+    tip.style.display = 'block';
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    let left = ev.clientX + 14, top = ev.clientY + 14;
+    if (left + tw > innerWidth - 8) left = ev.clientX - tw - 14;
+    if (top + th > innerHeight - 8) top = ev.clientY - th - 14;
+    tip.style.left = left + 'px'; tip.style.top = top + 'px';
+  });
+  svgOrEl.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+}
+function cellTip(el, html) {
+  el.addEventListener('mousemove', (ev) => {
+    tip.innerHTML = html; tip.style.display = 'block';
+    const tw = tip.offsetWidth;
+    let left = ev.clientX + 14;
+    if (left + tw > innerWidth - 8) left = ev.clientX - tw - 14;
+    tip.style.left = left + 'px'; tip.style.top = (ev.clientY + 14) + 'px';
+  });
+  el.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+}
+
+const drums = R.drums;
+const overWord = drums ? 'overhit' : 'overstrum';
+
+// ---------- header ----------
+function header() {
+  $('title').textContent = R.song;
+  const when = new Date(R.started);
+  const part = title(R.difficulty) + ' ' + (R.instrument === 'guitar_coop' ? 'Guitar Co-op' : title(R.instrument));
+  $('subtitle').textContent = [R.artist, part, R.player, when.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }), R.completed ? '' : 'stopped at ' + clock(R.end_time)].filter(Boolean).join('  ·  ');
+  document.title = R.song + ' · run report';
+  const S = R.summary;
+  const reached = S.notes_hit + S.notes_missed;
+  const stats = [
+    ['Score', S.score.toLocaleString() + ' <small>' + '★'.repeat(S.stars) + '</small>'],
+    ['Hit', pct(reached ? S.notes_hit / reached : 0) + ' <small>' + S.notes_hit + '/' + reached + '</small>'],
+    ['Best streak', S.max_streak],
+    [title(overWord) + 's', S.overstrums],
+    ['Average timing', R.mean_ms ? ms(R.mean_ms) : '–'],
+    ['Spread', R.spread_ms ? '±' + R.spread_ms.toFixed(1) + ' <small>ms</small>' : '–'],
+  ];
+  $('stats').innerHTML = stats.map(([k, v]) => '<div class="stat"><div class="k">' + k + '</div><div class="v">' + v + '</div></div>').join('');
+  $('tips').innerHTML = (R.tips || []).map(t => '<li>' + esc(t) + '</li>').join('');
+  $('overname').textContent = overWord;
+  document.querySelectorAll('.lanenoun').forEach(e => e.textContent = drums ? 'pad' : 'fret');
+  $('heattitle').textContent = drums ? 'Pads by section' : 'Frets by section';
+  $('ramp1').style.background = 'linear-gradient(90deg,' + heat(0.01) + ',' + heat(1) + ')';
+}
+
+function sectionsUsed(secs) { return secs.filter(x => x.Total > 0 || (x.Hits + x.Misses) > 0); }
+
+// ---------- timing scatter ----------
+function scatter() {
+  const box = $('scatter'); box.innerHTML = '';
+  const W = Math.max(560, box.clientWidth), L = 46, Rm = 12, plotW = W - L - Rm;
+  const top = 26, plotH = 240, rowH = 18, gap = 10, streakH = 80;
+  const yMiss = top + plotH + gap, yOver = yMiss + rowH + 4, yStreak = yOver + rowH + gap + 6;
+  const Ht = yStreak + streakH + 26;
+  const svg = s('svg', { width: W, height: Ht, viewBox: '0 0 ' + W + ' ' + Ht, role: 'img', 'aria-label': 'Hit timing over the song' }, box);
+  const len = Math.max(R.length, 1);
+  const x = t => L + (t / len) * plotW;
+  const hits = R.gems.filter(g => g.s === 1);
+  // The range covers the hit window; the odd far-early hit (an infinite
+  // front end allows those) is pinned to the edge as a hollow dot.
+  const win = Math.max(R.early_ms, R.late_ms);
+  const abs = hits.map(g => Math.abs(g.o)).sort((a, b) => a - b);
+  const p99 = abs.length ? abs[Math.floor(abs.length * 0.99)] : 0;
+  const lim = Math.ceil(Math.min(win * 1.5, Math.max(win, p99)) / 10) * 10;
+  const y = o => top + plotH / 2 - (o / lim) * (plotH / 2);
+  // sections
+  const secs = R.sections;
+  secs.forEach((sec, i) => {
+    const a = x(sec.Start), b = x(Math.min(sec.End, len));
+    if (i % 2 === 1) s('rect', { x: a, y: top, width: Math.max(0, b - a), height: yStreak + streakH - top, fill: css('--surface-2'), opacity: 0.7 }, svg);
+    const t = s('text', { x: a + 3, y: top - 8 }, svg);
+    t.textContent = sec.Name;
+    if (t.getComputedTextLength() > b - a - 6) t.remove();
+  });
+  // star power phrases
+  for (const sp of R.sp || []) s('rect', { x: x(sp.a), y: top + plotH - 3, width: Math.max(2, x(sp.b) - x(sp.a)), height: 3, fill: css('--sp'), opacity: 0.6 }, svg);
+  // grid and windows
+  for (const o of [-lim, -R.early_ms, 0, R.late_ms, lim]) {
+    s('line', { x1: L, x2: L + plotW, y1: y(o), y2: y(o), stroke: o === 0 ? css('--axis') : css('--grid'), 'stroke-width': 1 }, svg);
+  }
+  const lab = (o, txt) => { const t = s('text', { x: L - 6, y: y(o) + 4, 'text-anchor': 'end' }, svg); t.textContent = txt; };
+  lab(lim, '+' + lim); lab(0, '0'); lab(-lim, '−' + lim);
+  const tl = s('text', { x: L + 4, y: top + 12 }, svg); tl.textContent = 'late';
+  const te = s('text', { x: L + 4, y: top + plotH - 6 }, svg); te.textContent = 'early';
+  const pts = [];
+  for (const g of hits) {
+    const c = g.o < -15 ? css('--early') : g.o > 15 ? css('--late') : css('--ontime');
+    const out = Math.abs(g.o) > lim;
+    const cx = x(g.t), cy = y(Math.max(-lim, Math.min(lim, g.o)));
+    if (out) s('circle', { cx, cy, r: 3.5, fill: 'none', stroke: c, 'stroke-width': 1.5 }, svg);
+    else s('circle', { cx, cy, r: 3, fill: c, opacity: 0.9 }, svg);
+    pts.push({ x: cx, y: cy, html: '<b>' + clock(g.t) + '</b>  ' + esc(g.k) + '\n' + ms(g.o) + (g.sp ? '\nstar power phrase' : '') });
+  }
+  // running average
+  const N = 25; let d = '';
+  for (let i = 0; i < hits.length; i++) {
+    const lo = Math.max(0, i - N + 1); let sum = 0;
+    for (let j = lo; j <= i; j++) sum += Math.max(-lim, Math.min(lim, hits[j].o));
+    if (i < 4) continue;
+    d += (d ? 'L' : 'M') + x(hits[i].t).toFixed(1) + ',' + y(sum / (i - lo + 1)).toFixed(1);
+  }
+  if (d) s('path', { d, fill: 'none', stroke: css('--accent'), 'stroke-width': 2, 'stroke-linejoin': 'round' }, svg);
+  // misses and overstrums
+  const rowLab = (yy, txt) => { const t = s('text', { x: L - 6, y: yy + 13, 'text-anchor': 'end' }, svg); t.textContent = txt; };
+  rowLab(yMiss, 'miss'); rowLab(yOver, drums ? 'extra' : 'over');
+  for (const g of R.gems) {
+    if (g.s !== 2) continue;
+    const cx = x(g.t);
+    s('rect', { x: cx - 1.5, y: yMiss + 2, width: 3, height: rowH - 4, rx: 1.5, fill: css('--miss') }, svg);
+    pts.push({ x: cx, y: yMiss + rowH / 2, html: '<b>Missed ' + clock(g.t) + '</b>  ' + esc(g.k) + '\n' + esc(g.why || '') });
+  }
+  for (const e of R.errors || []) {
+    const cx = x(e.t);
+    s('rect', { x: cx - 1, y: yOver + 4, width: 2, height: rowH - 8, rx: 1, fill: css('--over'), opacity: e.broke ? 1 : 0.55 }, svg);
+    pts.push({ x: cx, y: yOver + rowH / 2, html: '<b>' + title(overWord) + ' ' + clock(e.t) + '</b>' + (e.held ? '\nheld ' + e.held : (e.r >= 0 ? '\n' + R.rows[e.r].name : '')) + (e.broke ? '\nbroke the streak' : '') });
+  }
+  // streak
+  let maxS = 1; for (const p of R.streak) maxS = Math.max(maxS, p.s);
+  const ys = v => yStreak + streakH - (v / maxS) * streakH;
+  s('line', { x1: L, x2: L + plotW, y1: yStreak + streakH, y2: yStreak + streakH, stroke: css('--axis') }, svg);
+  const sl = s('text', { x: L - 6, y: ys(maxS) + 4, 'text-anchor': 'end' }, svg); sl.textContent = maxS;
+  const sn = s('text', { x: L - 6, y: yStreak + streakH - 2, 'text-anchor': 'end' }, svg); sn.textContent = 'streak';
+  let sd = 'M' + L + ',' + ys(0); let prev = 0;
+  for (const p of R.streak) { sd += 'L' + x(p.t).toFixed(1) + ',' + ys(prev).toFixed(1) + 'L' + x(p.t).toFixed(1) + ',' + ys(p.s).toFixed(1); prev = p.s; }
+  sd += 'L' + x(R.completed ? len : R.end_time).toFixed(1) + ',' + ys(prev).toFixed(1);
+  s('path', { d: sd + 'L' + x(R.completed ? len : R.end_time).toFixed(1) + ',' + ys(0) + 'Z', fill: css('--good'), opacity: 0.14 }, svg);
+  s('path', { d: sd, fill: 'none', stroke: css('--good'), 'stroke-width': 2 }, svg);
+  for (const t of R.sp_on || []) {
+    const cx = x(t), cy = yStreak + 6;
+    s('path', { d: 'M' + cx + ',' + (cy - 6) + 'l6,6l-6,6l-6,-6z', fill: css('--sp') }, svg);
+    pts.push({ x: cx, y: cy, html: '<b>Star power</b> ' + clock(t) });
+  }
+  for (const t of R.revives || []) pts.push({ x: x(t), y: yStreak + streakH - 6, html: '<b>Revived</b> ' + clock(t) });
+  // x axis
+  for (let t = 0; t <= len; t += len > 300 ? 60 : 30) {
+    const tx = s('text', { x: x(t), y: Ht - 6, 'text-anchor': 'middle' }, svg); tx.textContent = clock(t).replace(/\.0$/, '');
+  }
+  hover(svg, pts, 12);
+}
+
+// ---------- chart strip (shared by the run and the history) ----------
+// colorFor(g) returns {fill, ring, alpha, html}.
+function strip(box, rows, gems, opts) {
+  box.innerHTML = '';
+  const W = Math.max(560, box.clientWidth), L = 70, Rm = 8, plotW = W - L - Rm;
+  const len = Math.max(opts.length, 1);
+  const pxPerSec = 64;
+  let rowSecs = Math.max(8, Math.round(plotW / pxPerSec));
+  const nRows = Math.ceil(len / rowSecs);
+  rowSecs = len / nRows;
+  const laneH = drums ? 13 : 12;
+  const bandH = rows.length * laneH + (opts.errors ? 12 : 0);
+  const blockH = bandH + 30;
+  const Ht = nRows * blockH + 4;
+  const svg = s('svg', { width: W, height: Ht, viewBox: '0 0 ' + W + ' ' + Ht, role: 'img', 'aria-label': opts.label }, box);
+  const pos = t => { const r = Math.min(nRows - 1, Math.floor(t / rowSecs)); return [r, L + ((t - r * rowSecs) / rowSecs) * plotW]; };
+  const laneY = (r, row) => r * blockH + 22 + row * laneH + laneH / 2;
+  const pts = [];
+  for (let r = 0; r < nRows; r++) {
+    const y0 = r * blockH + 22;
+    const t0 = r * rowSecs;
+    const lt = s('text', { x: 0, y: y0 + bandH / 2 + 4 }, svg); lt.textContent = clock(t0).replace(/\.\d$/, '');
+    rows.forEach((row, i) => {
+      s('line', { x1: L, x2: L + plotW, y1: laneY(r, i), y2: laneY(r, i), stroke: laneColor(i, rows), 'stroke-opacity': 0.22, 'stroke-width': 1 }, svg);
+    });
+    for (const sp of opts.sp || []) {
+      if (sp.b < t0 || sp.a > t0 + rowSecs) continue;
+      const a = L + Math.max(0, (sp.a - t0) / rowSecs) * plotW, b = L + Math.min(1, (sp.b - t0) / rowSecs) * plotW;
+      s('rect', { x: a, y: y0 - 2, width: Math.max(2, b - a), height: rows.length * laneH + 4, fill: css('--sp'), opacity: 0.1, rx: 3 }, svg);
+    }
+  }
+  // section markers
+  for (const sec of opts.sections) {
+    if (sec.Total === 0 && sec.Start > 0 && !(sec.Hits + sec.Misses)) continue;
+    const [r, sx] = pos(sec.Start);
+    const y0 = r * blockH + 22;
+    s('line', { x1: sx, x2: sx, y1: y0 - 14, y2: y0 + bandH, stroke: css('--axis'), 'stroke-width': 1 }, svg);
+    const t = s('text', { x: sx + 3, y: y0 - 6, class: 'ink' }, svg); t.textContent = sec.Name;
+  }
+  // sustains first, then gems on top
+  for (const g of gems) {
+    if (!g.e || g.e <= g.t) continue;
+    const c = opts.color(g);
+    for (const row of g.r) {
+      let t = g.t;
+      while (t < g.e - 1e-6) {
+        const [r, sx] = pos(t);
+        const rowEnd = (r + 1) * rowSecs;
+        const t2 = Math.min(g.e, rowEnd);
+        const ex = L + ((t2 - r * rowSecs) / rowSecs) * plotW;
+        s('line', { x1: sx, x2: ex, y1: laneY(r, row), y2: laneY(r, row), stroke: laneColor(row, rows), 'stroke-width': 3, 'stroke-opacity': 0.45 * c.alpha, 'stroke-linecap': 'round' }, svg);
+        t = t2 + 1e-6;
+        if (t2 >= g.e) break;
+      }
+    }
+  }
+  for (const g of gems) {
+    const c = opts.color(g);
+    const [r, gx] = pos(g.t);
+    if (g.r.length > 1) {
+      const ys = g.r.map(row => laneY(r, row));
+      s('line', { x1: gx, x2: gx, y1: Math.min(...ys), y2: Math.max(...ys), stroke: css('--axis'), 'stroke-width': 1 }, svg);
+    }
+    for (const row of g.r) {
+      const gy = laneY(r, row);
+      const fill = c.fill || laneColor(row, rows);
+      s('circle', { cx: gx, cy: gy, r: c.ring ? 4.6 : 4.2, fill, 'fill-opacity': c.alpha, stroke: c.ring || 'none', 'stroke-width': c.ring ? 2.2 : 0 }, svg);
+      pts.push({ x: gx, y: gy, html: c.html });
+    }
+  }
+  if (opts.errors) {
+    for (const e of opts.errors) {
+      const [r, ex] = pos(e.t);
+      const ey = r * blockH + 22 + rows.length * laneH + 5;
+      s('path', { d: 'M' + (ex - 4) + ',' + (ey + 6) + 'L' + ex + ',' + ey + 'L' + (ex + 4) + ',' + (ey + 6) + 'Z', fill: css('--over'), opacity: e.broke ? 1 : 0.55 }, svg);
+      pts.push({ x: ex, y: ey + 3, html: '<b>' + title(overWord) + ' ' + clock(e.t) + '</b>' + (e.held ? '\nheld ' + e.held : (e.r >= 0 ? '\n' + R.rows[e.r].name : '')) });
+    }
+  }
+  hover(svg, pts, 10);
+}
+
+function runStrip() {
+  strip($('strip'), R.rows, R.gems, {
+    length: R.length, sections: R.sections, sp: R.sp, errors: R.errors, label: 'The chart with each note marked hit or missed',
+    color: g => {
+      const head = '<b>' + clock(g.t) + '</b>  ' + esc(g.k);
+      if (g.s === 1) return { alpha: 1, html: head + '\nhit ' + ms(g.o) };
+      if (g.s === 2) return { alpha: 0.35, ring: css('--miss'), html: head + '\n<b>missed</b>: ' + esc(g.why || '') };
+      return { alpha: 0.18, html: head + '\nnot reached' };
+    },
+  });
+  $('striplegend').innerHTML = '<span><i class="sw dot" style="background:var(--lane-green)"></i>hit</span>' +
+    '<span><i class="sw ring"></i>missed</span><span><i class="sw dot" style="background:var(--lane-green);opacity:.2"></i>not reached</span>' +
+    '<span><i class="sw" style="background:var(--over)"></i>' + overWord + '</span><span><i class="sw" style="background:var(--sp);opacity:.35"></i>star power phrase</span>';
+}
+
+// ---------- fret x section heat map ----------
+function fretHeat() {
+  const box = $('heat'); box.innerHTML = '';
+  const cols = [];
+  R.sections.forEach((sec, i) => { if (sec.Total > 0 || R.over[i] > 0) cols.push(i); });
+  box.style.gridTemplateColumns = '120px repeat(' + cols.length + ', minmax(58px, 1fr))';
+  box.appendChild(h('div', { class: 'h' }, ''));
+  for (const i of cols) { const e = h('div', { class: 'h', title: R.sections[i].Name }, esc(R.sections[i].Name)); box.appendChild(e); }
+  R.rows.forEach((row, ri) => {
+    box.appendChild(h('div', { class: 'rl' }, '<i class="sw dot" style="background:' + laneColor(ri, R.rows) + '"></i>' + esc(title(row.name))));
+    for (const i of cols) {
+      const c = R.grid[ri][i];
+      const reached = c.h + c.m;
+      let e;
+      if (c.n === 0) { e = h('div', { class: 'c', style: 'background:transparent' }, ''); }
+      else if (reached === 0) { e = h('div', { class: 'c empty' }, '–'); cellTip(e, '<b>' + esc(R.sections[i].Name) + '</b>  ' + esc(row.name) + '\nnot reached (' + c.n + ' notes)'); }
+      else {
+        const rate = c.m / reached;
+        e = h('div', { class: 'c', style: 'background:' + heat(rate) + ';color:' + heatInk(rate) }, c.m ? c.m + '/' + reached : '');
+        cellTip(e, '<b>' + esc(R.sections[i].Name) + '</b>  ' + esc(row.name) + '\nmissed ' + c.m + ' of ' + reached + ' (' + pct(rate) + ')' + (reached < c.n ? '\n' + (c.n - reached) + ' not reached' : ''));
+      }
+      box.appendChild(e);
+    }
+  });
+  box.appendChild(h('div', { class: 'rl' }, '<i class="sw" style="background:var(--over)"></i>' + title(overWord) + 's'));
+  for (const i of cols) {
+    const n = R.over[i];
+    const e = h('div', { class: 'c', style: n ? 'background:transparent;color:var(--over);font-weight:650' : 'background:transparent' }, n ? String(n) : '');
+    box.appendChild(e);
+  }
+}
+
+// ---------- section report card ----------
+function reportCard() {
+  const usedCats = CATS.filter(c => R.sections.some(x => x.miss_by && x.miss_by[c[0]]));
+  const maxMiss = Math.max(1, ...R.sections.map(x => x.Misses));
+  const unit = Math.min(8, 180 / maxMiss);
+  let html = '<thead><tr><th>Section</th><th class="num">Starts</th><th>Accuracy</th><th class="num">Notes</th><th>Misses by cause</th><th class="num">' + title(overWord) + 's</th><th class="num">Timing</th><th class="num">Early / late</th><th class="num">Best streak</th></tr></thead><tbody>';
+  for (const x of R.sections) {
+    if (x.Total === 0 && x.Overstrums === 0) continue;
+    const judged = x.Hits + x.Misses;
+    if (judged === 0) {
+      html += '<tr class="dim"><td>' + esc(x.Name) + '</td><td class="num">' + clock(x.Start) + '</td><td colspan="7">not reached</td></tr>';
+      continue;
+    }
+    const acc = x.Hits / judged;
+    const col = acc >= 0.95 ? 'var(--good)' : acc >= 0.75 ? 'var(--lane-yellow)' : 'var(--miss)';
+    let stack = '';
+    for (const c of usedCats) {
+      const n = (x.miss_by || {})[c[0]] || 0;
+      if (n) stack += '<i title="' + c[1] + ': ' + n + '" style="width:' + Math.max(3, n * unit).toFixed(1) + 'px;background:var(' + c[2] + ')"></i>';
+    }
+    const missTxt = x.Misses ? x.Misses + ' ' : '';
+    html += '<tr><td>' + esc(x.Name) + '</td><td class="num">' + clock(x.Start) + '</td>' +
+      '<td><span class="bar"><i style="width:' + (acc * 100).toFixed(1) + '%;background:' + col + '"></i></span>' + pct(acc) + '</td>' +
+      '<td class="num">' + x.Hits + '/' + judged + (judged < x.Total ? ' <span class="note">of ' + x.Total + '</span>' : '') + '</td>' +
+      '<td>' + (x.Misses ? '<span class="note">' + missTxt + '</span><span class="stack">' + stack + '</span>' : '<span class="note">none</span>') + '</td>' +
+      '<td class="num">' + (x.Overstrums || '') + '</td>' +
+      '<td class="num">' + (x.Hits ? ms(x.MeanMs) + ' <span class="note">±' + x.SpreadMs.toFixed(0) + '</span>' : '') + '</td>' +
+      '<td class="num">' + x.Early + ' / ' + x.Late + '</td>' +
+      '<td class="num">' + x.longest_streak + '</td></tr>';
+  }
+  $('card').innerHTML = html + '</tbody>';
+  $('catlegend').innerHTML = usedCats.map(c => '<span><i class="sw" style="background:var(' + c[2] + ')"></i>' + c[1] + '</span>').join('') +
+    '<span class="note">Timing is the average offset ± spread; early/late count hits more than 15 ms off.</span>';
+}
+
+// ---------- history ----------
+function history() {
+  const root = $('history'); root.innerHTML = '';
+  if (!H || !H.attempts || H.attempts.length === 0) return;
+  const A = H.attempts;
+  root.appendChild(h('h2', null, 'Your history on this part' + (H.player ? ' · ' + esc(H.player) : '')));
+  if (A.length < 2) {
+    const c = h('section', { class: 'card' }, '<h3>Only one play so far</h3><p class="what" style="margin:0">Play this part again and this report will show how each section, note and your timing change across attempts.</p>');
+    root.appendChild(c);
+    return;
+  }
+  const dateOf = a => new Date(a.started).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+  // progress: small multiples
+  const prog = h('section', { class: 'card' }, '<h3>Progress</h3><p class="what">Every attempt in order. The ringed point is the run this report is about; the star is your best score.</p><div id="prog" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px"></div>');
+  root.appendChild(prog);
+  const metrics = [['Score', a => a.score, v => Math.round(v).toLocaleString()], ['Hit %', a => a.hit_rate * 100, v => v.toFixed(1) + '%'], ['Best streak', a => a.max_streak, v => String(Math.round(v))]];
+  const cells = metrics.map(() => { const c = h('div'); $('prog').appendChild(c); return c; });
+  metrics.forEach(([name, f, fmt], mi) => {
+    const cell = cells[mi];
+    const W = Math.max(260, cell.clientWidth), Hh = 150, L = 8, Rm = 8, top = 24, bot = 22;
+    const svg = s('svg', { width: W, height: Hh, viewBox: '0 0 ' + W + ' ' + Hh, role: 'img', 'aria-label': name + ' per attempt' }, cell);
+    const vals = A.map(f);
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    if (hi === lo) { hi += 1; lo -= 1; }
+    const pad = (hi - lo) * 0.1; lo -= pad; hi += pad;
+    const x = i => L + (A.length === 1 ? 0.5 : i / (A.length - 1)) * (W - L - Rm);
+    const y = v => top + (1 - (v - lo) / (hi - lo)) * (Hh - top - bot);
+    const tt = s('text', { x: 0, y: 14, class: 'ink' }, svg); tt.textContent = name;
+    const last = s('text', { x: W, y: 14, 'text-anchor': 'end' }, svg); last.textContent = 'latest ' + fmt(vals[vals.length - 1]);
+    s('line', { x1: L, x2: W - Rm, y1: Hh - bot, y2: Hh - bot, stroke: css('--axis') }, svg);
+    s('path', { d: vals.map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ',' + y(v).toFixed(1)).join(''), fill: 'none', stroke: css('--early'), 'stroke-width': 2, 'stroke-linejoin': 'round' }, svg);
+    const pts = [];
+    vals.forEach((v, i) => {
+      const a = A[i];
+      s('circle', { cx: x(i), cy: y(v), r: a.current ? 5 : 3.5, fill: a.current ? css('--surface') : css('--early'), stroke: a.current ? css('--ink') : css('--surface'), 'stroke-width': 2 }, svg);
+      if (a.best && name === 'Score') { const st = s('text', { x: x(i), y: y(v) - 9, 'text-anchor': 'middle', style: 'fill:' + css('--lane-yellow') + ';font-size:14px' }, svg); st.textContent = '★'; }
+      pts.push({ x: x(i), y: y(v), yw: 0.2, html: '<b>Attempt ' + (i + 1) + '</b>  ' + dateOf(a) + '\n' + name + ': ' + fmt(v) + (a.completed ? '' : '\nstopped early') + (a.mode ? '\n' + a.mode : '') });
+    });
+    const a1 = s('text', { x: L, y: Hh - 6 }, svg); a1.textContent = '1';
+    const an = s('text', { x: W - Rm, y: Hh - 6, 'text-anchor': 'end' }, svg); an.textContent = A.length;
+    hover(svg, pts, 40);
+  });
+
+  // section x attempt heat map
+  const MAXA = 60;
+  const shown = A.length > MAXA ? A.slice(A.length - MAXA) : A;
+  const off = A.length - shown.length;
+  const secIdx = H.sections.map((x, i) => i).filter(i => H.sections[i].Total > 0);
+  const card = h('section', { class: 'card' }, '<h3>Sections across attempts</h3><p class="what">Each column is an attempt, oldest on the left. Darker means more of that section was missed, so improvement shows as the color fading left to right.' + (off ? ' Showing the last ' + MAXA + '.' : '') + '</p><div class="scroll"><div class="heat" id="sxa"></div></div><div class="legend"><span>0% missed<i class="ramp" id="ramp2"></i>100%</span><span><i class="sw" style="border:1px dashed var(--axis)"></i>not reached</span><span><i class="sw" style="outline:2px solid var(--ink-2);outline-offset:-2px;background:transparent"></i>this run</span></div>');
+  root.appendChild(card);
+  $('ramp2').style.background = 'linear-gradient(90deg,' + heat(0.01) + ',' + heat(1) + ')';
+  const g = $('sxa');
+  g.style.gridTemplateColumns = '150px repeat(' + shown.length + ', minmax(26px, 56px))';
+  g.appendChild(h('div', { class: 'h' }, ''));
+  shown.forEach((a, i) => g.appendChild(h('div', { class: 'h', style: 'text-align:center' + (a.current ? ';color:var(--ink)' : '') }, String(off + i + 1))));
+  for (const si of secIdx) {
+    g.appendChild(h('div', { class: 'rl' }, esc(H.sections[si].Name)));
+    shown.forEach((a, i) => {
+      const acc = a.section_acc[si];
+      let e;
+      if (acc == null || acc < 0) { e = h('div', { class: 'c empty' + (a.current ? ' cur' : '') }, ''); cellTip(e, '<b>' + esc(H.sections[si].Name) + '</b>\nattempt ' + (off + i + 1) + ': not reached'); }
+      else {
+        const rate = 1 - acc;
+        e = h('div', { class: 'c' + (a.current ? ' cur' : ''), style: 'background:' + heat(rate) }, '');
+        cellTip(e, '<b>' + esc(H.sections[si].Name) + '</b>\nattempt ' + (off + i + 1) + ', ' + dateOf(a) + '\n' + pct(acc) + ' hit');
+      }
+      g.appendChild(e);
+    });
+  }
+
+  // per-note miss map
+  const nm = h('section', { class: 'card' }, '<h3>Notes you keep missing</h3><p class="what">The chart again, each note marked by its record across your attempts. Solid red notes were missed the last time you reached them (darker: missed more often); a red ring means you used to miss it and have hit it since. Hover a note for its record.</p><div id="nmstrip"></div><div class="legend" id="nmleg"></div>');
+  root.appendChild(nm);
+  const drawNM = () => {
+    strip($('nmstrip'), H.rows, H.gems, {
+      length: H.length, sections: H.sections, label: 'Each note marked by how often it was missed across attempts',
+      color: g => {
+        const head = '<b>' + clock(g.t) + '</b>  ' + esc(g.k);
+        if (!g.reached) return { alpha: 0.12, html: head + '\nnever reached' };
+        if (!g.missed) return { alpha: 0.28, html: head + '\nnever missed (' + g.reached + ' times)' };
+        const rate = g.missed / g.reached;
+        const rec = '\nmissed ' + g.missed + ' of ' + g.reached + ' times' + (g.hit_streak ? '\nhit the last ' + g.hit_streak + ' in a row' : '\nmissed last time');
+        if (g.hit_streak) return { alpha: 0.28, ring: heat(Math.max(0.35, rate)), html: head + rec };
+        return { alpha: 1, fill: heat(rate), html: head + rec };
+      },
+    });
+    $('nmleg').innerHTML = '<span>missed last time: rarely<i class="ramp" style="background:linear-gradient(90deg,' + heat(0.05) + ',' + heat(1) + ')"></i>every time</span>' +
+      '<span><i class="sw dot" style="background:var(--lane-green);opacity:.3;box-shadow:0 0 0 2px ' + heat(0.6) + '"></i>missed before, hit since</span>' +
+      '<span><i class="sw dot" style="background:var(--lane-green);opacity:.3"></i>never missed (lane color)</span>';
+  };
+  drawNM();
+  redrawers.push(drawNM);
+
+  // timing ridgeline
+  const rl = h('section', { class: 'card' }, '<h3>Timing over attempts</h3><p class="what">Where your hits landed, one row per attempt (newest at the bottom). A tall narrow peak centered on zero is tight, on-time playing; a peak drifting sideways means you\'re running early or late.</p><div id="ridge"></div>');
+  root.appendChild(rl);
+  const drawRidge = () => {
+    const box = $('ridge'); box.innerHTML = '';
+    const rows = shown;
+    const W = Math.max(520, box.clientWidth), L = 120, Rm = 70, top = 20;
+    const rowH = Math.max(26, Math.min(60, 360 / rows.length)), peak = rowH * 1.8;
+    const Ht = top + rows.length * rowH + peak + 30;
+    const svg = s('svg', { width: W, height: Ht, viewBox: '0 0 ' + W + ' ' + Ht, role: 'img', 'aria-label': 'Timing histograms per attempt' }, box);
+    const lim = -H.hist_start_ms, bw = H.bucket_ms;
+    const x = o => L + ((o + lim) / (2 * lim)) * (W - L - Rm);
+    const defs = s('defs', {}, svg);
+    const gr = s('linearGradient', { id: 'rg', x1: '0', x2: '1', y1: '0', y2: '0' }, defs);
+    const pE = (lim - 15) / (2 * lim), pL = (lim + 15) / (2 * lim);
+    for (const [o, c] of [[0, '--early'], [pE, '--early'], [0.5, '--ontime'], [pL, '--late'], [1, '--late']]) s('stop', { offset: o, 'stop-color': css(c) }, gr);
+    s('line', { x1: x(0), x2: x(0), y1: top - 6, y2: Ht - 24, stroke: css('--axis') }, svg);
+    for (const o of [-lim, -lim / 2, lim / 2, lim]) s('line', { x1: x(o), x2: x(o), y1: top - 6, y2: Ht - 24, stroke: css('--grid') }, svg);
+    // A light [1 2 1] smoothing keeps few-hit attempts from looking spiky.
+    const smooth = hs => hs.map((c, i) => ((hs[i - 1] || 0) + 2 * c + (hs[i + 1] || 0)) / 4);
+    const sm = rows.map(a => smooth(a.hist));
+    let maxC = 0;
+    rows.forEach((a, i) => { const tot = a.hist.reduce((p, c) => p + c, 0) || 1; for (const c of sm[i]) maxC = Math.max(maxC, c / tot); });
+    const pts = [];
+    rows.forEach((a, i) => {
+      const base = top + peak + i * rowH;
+      const tot = a.hist.reduce((p, c) => p + c, 0) || 1;
+      let d = 'M' + x(-lim) + ',' + base;
+      sm[i].forEach((c, b) => {
+        const o = H.hist_start_ms + (b + 0.5) * bw;
+        d += 'L' + x(o).toFixed(1) + ',' + (base - (c / tot) / (maxC || 1) * peak).toFixed(1);
+      });
+      d += 'L' + x(lim) + ',' + base + 'Z';
+      s('path', { d, fill: 'url(#rg)', 'fill-opacity': a.current ? 0.9 : 0.55, stroke: css('--surface'), 'stroke-width': 1.5 }, svg);
+      if (a.hits) s('line', { x1: x(a.mean_ms), x2: x(a.mean_ms), y1: base - 8, y2: base, stroke: css('--ink'), 'stroke-width': 2 }, svg);
+      const lt = s('text', { x: L - 10, y: base - 3, 'text-anchor': 'end', class: a.current ? 'ink' : '' }, svg); lt.textContent = '#' + (off + i + 1) + '  ' + new Date(a.started).toLocaleDateString([], { month: 'short', day: 'numeric' });
+      const rt = s('text', { x: W - Rm + 8, y: base - 3 }, svg); rt.textContent = a.hits ? '±' + a.spread_ms.toFixed(0) + ' ms' : '';
+      pts.push({ x: x(a.hits ? a.mean_ms : 0), y: base - 10, yw: 2, html: '<b>Attempt ' + (off + i + 1) + '</b>  ' + dateOf(a) + '\n' + a.hits + ' hits, average ' + ms(a.mean_ms) + ', spread ±' + a.spread_ms.toFixed(1) + ' ms' });
+    });
+    for (const [o, t] of [[-lim, '−' + lim + ' early'], [0, '0'], [lim, '+' + lim + ' late']]) { const tx = s('text', { x: x(o), y: Ht - 8, 'text-anchor': 'middle' }, svg); tx.textContent = t; }
+    hover(svg, pts, 300);
+  };
+  drawRidge();
+  redrawers.push(drawRidge);
+
+  // attempts table (the same data as a table)
+  const tb = h('section', { class: 'card' }, '<h3>All attempts</h3><div class="scroll"><table id="atab"></table></div>' + (H.skipped ? '<p class="note">' + H.skipped + ' recording(s) couldn\'t be read.</p>' : ''));
+  root.appendChild(tb);
+  let th = '<thead><tr><th>#</th><th>When</th><th class="num">Score</th><th class="num">Hit</th><th class="num">Best streak</th><th class="num">' + title(overWord) + 's</th><th class="num">Timing</th><th></th></tr></thead><tbody>';
+  A.forEach((a, i) => {
+    const flags = [a.best ? '★ best' : '', a.full_combo ? 'full combo' : '', a.completed ? '' : 'stopped early', a.current ? 'this run' : '', a.mode || '', a.chart_changed ? 'older chart' : ''].filter(Boolean).join(' · ');
+    th += '<tr' + (a.current ? ' style="background:var(--surface-2)"' : '') + '><td>' + (i + 1) + '</td><td>' + dateOf(a) + '</td><td class="num">' + a.score.toLocaleString() + '</td><td class="num">' + pct(a.hit_rate) + '</td><td class="num">' + a.max_streak + '</td><td class="num">' + a.overstrums + '</td><td class="num">' + (a.hits ? ms(a.mean_ms) + ' ±' + a.spread_ms.toFixed(0) : '') + '</td><td class="note">' + flags + '</td></tr>';
+  });
+  $('atab').innerHTML = th + '</tbody>';
+}
+
+const redrawers = [];
+function all() {
+  redrawers.length = 0;
+  header(); scatter(); runStrip(); fretHeat(); reportCard(); history();
+}
+all();
+let rt;
+addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { scatter(); runStrip(); redrawers.forEach(f => f()); }, 150); });
+$('theme').addEventListener('click', () => {
+  const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+  document.documentElement.dataset.theme = cur === 'light' ? 'dark' : 'light';
+  all();
+});
+})();
+</script>
+</body>
+</html>

@@ -76,6 +76,25 @@ func (p *Profile) Owns(id string) bool {
 	return id == p.ID || (id == "" && p.Legacy)
 }
 
+// OwnerOf returns a filter for the recordings played by the same profile as
+// a recording tagged id (runs from before profiles, tagged "", belong to the
+// first, legacy profile).
+func (s *Store) OwnerOf(id string) func(string) bool {
+	if s != nil {
+		if p := s.Get(id); p != nil {
+			return p.Owns
+		}
+		if id == "" {
+			for _, p := range s.list {
+				if p.Legacy {
+					return p.Owns
+				}
+			}
+		}
+	}
+	return func(o string) bool { return o == id }
+}
+
 func (p *Profile) path() string { return filepath.Join(p.dir, p.ID+".json") }
 
 // Store is the set of profiles on disk.

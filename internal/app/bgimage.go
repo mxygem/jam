@@ -7,9 +7,7 @@ import (
 	"math"
 	"math/rand"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -18,6 +16,7 @@ import (
 	xdraw "golang.org/x/image/draw"
 
 	"github.com/mxygem/jam/internal/config"
+	"github.com/mxygem/jam/internal/osopen"
 	"github.com/mxygem/jam/internal/render"
 )
 
@@ -278,18 +277,7 @@ func openFolder(a *App, dir string) {
 		a.Toast("Couldn't create " + dir + ": " + err.Error())
 		return
 	}
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("explorer.exe", dir)
-	case "darwin":
-		cmd = exec.Command("open", dir)
-	default:
-		cmd = exec.Command("xdg-open", dir)
-	}
-	if err := cmd.Start(); err != nil {
+	if err := osopen.Open(dir); err != nil {
 		a.Toast("Couldn't open " + dir + ": " + err.Error())
-		return
 	}
-	go func() { _ = cmd.Wait() }()
 }

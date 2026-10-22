@@ -59,3 +59,19 @@ func TestStore(t *testing.T) {
 		t.Fatal("ownership of untagged runs")
 	}
 }
+
+func TestOwnerOf(t *testing.T) {
+	t.Setenv("JAM_HOME", t.TempDir())
+	s, _ := Load(config.ProfilesDir())
+	first, _ := s.Migrate(config.Default())
+	sam, _ := s.Create("Sam", config.DefaultPlayer())
+	if own := s.OwnerOf(""); !own("") || !own(first.ID) || own(sam.ID) {
+		t.Fatal("runs from before profiles belong to the first profile")
+	}
+	if own := s.OwnerOf(sam.ID); !own(sam.ID) || own("") || own(first.ID) {
+		t.Fatal("Sam's runs are Sam's alone")
+	}
+	if own := s.OwnerOf("gone"); !own("gone") || own(sam.ID) {
+		t.Fatal("a deleted profile's runs still match each other")
+	}
+}
