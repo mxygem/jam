@@ -1,6 +1,9 @@
 package app
 
 import (
+	"image"
+	"image/color"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -190,5 +193,73 @@ func TestPauseAppearance(t *testing.T) {
 	}
 	if a.Settings.Look.Theme != themeCustom {
 		t.Errorf("theme %q after editing", a.Settings.Look.Theme)
+	}
+}
+
+// TestHighwayTextures steps through every highway texture on the
+// Appearance page, including an image the player added, which stays out
+// of the background list.
+func TestHighwayTextures(t *testing.T) {
+	h := newHarness(t)
+	a := h.a
+	dir := filepath.Join(CustomsDir(), "highways")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	img := image.NewRGBA(image.Rect(0, 0, 256, 512))
+	for y := 0; y < 512; y++ {
+		for x := 0; x < 256; x++ {
+			img.Set(x, y, color.RGBA{uint8(x), uint8(y / 2), 0x80, 0xFF})
+		}
+	}
+	f, err := os.Create(filepath.Join(dir, "My board.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = png.Encode(f, img)
+	f.Close()
+	if bg := scanBackgrounds(CustomsDir()); len(bg) != 0 {
+		t.Errorf("highway images listed as backgrounds: %v", bg)
+	}
+
+	s := NewSettingsAt(a, pageLooks)
+	a.scene = s
+	h.idle(2.3)
+	for s.menu.items.Items[s.menu.items.Sel].Label != "Highway texture" {
+		h.key(keyArrowDown)
+	}
+	h.key(keyEnter) // look for new images
+	want := render.HighwayTextures()
+	if want[len(want)-1] != "custom:highways/My board.png" {
+		t.Fatalf("texture list %v doesn't end with the player's image", want)
+	}
+	start := render.CurrentLook.Texture
+	i := 0
+	for k, id := range want {
+		if id == start {
+			i = k
+		}
+	}
+	for n := 1; n <= len(want); n++ {
+		h.key(keyRight)
+		got := render.CurrentLook.Texture
+		if exp := want[(i+n)%len(want)]; got != exp {
+			t.Fatalf("step %d: texture %q, want %q", n, got, exp)
+		}
+		h.idle(0.1)
+		h.shot("texture-" + strings.ToLower(strings.ReplaceAll(render.TextureLabel(got), " ", "-")))
+	}
+	if a.Settings.Look.Theme != themeCustom || a.Settings.Look.Custom.Texture != start {
+		t.Fatalf("custom look texture %q, want %q", a.Settings.Look.Custom.Texture, start)
+	}
+	// Strength goes into the custom look too.
+	h.key(keyArrowDown)
+	if l := s.menu.items.Items[s.menu.items.Sel].Label; l != "Texture strength" {
+		t.Fatalf("after Highway texture comes %q", l)
+	}
+	before := render.CurrentLook.TextureStrength
+	h.key(keyLeft)
+	if render.CurrentLook.TextureStrength >= before || *a.Settings.Look.Custom.TextureStrength != render.CurrentLook.TextureStrength {
+		t.Fatalf("strength %.2f -> %.2f (saved %v)", before, render.CurrentLook.TextureStrength, *a.Settings.Look.Custom.TextureStrength)
 	}
 }

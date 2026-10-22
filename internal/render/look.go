@@ -141,12 +141,16 @@ type Look struct {
 	HighwayOpacity float64 // 0..1
 	BeatLines      float64 // brightness of the beat lines, 1 is normal
 	LaneLines      float64 // brightness of the lines between lanes, 1 is normal
-	NoteSize       float64 // gem size, 1 is normal (a preference, not part of themes)
+	// Texture is painted on the highway ("" none, a built-in id, or
+	// "custom:<image>"); TextureStrength is how much it shows, 0..1.
+	Texture         string
+	TextureStrength float64
+	NoteSize        float64 // gem size, 1 is normal (a preference, not part of themes)
 }
 
 // DefaultLook is the out-of-the-box look.
 func DefaultLook() Look {
-	return Look{Material: MatClassic, Rim: RimSilver, Highway: HwSolid, HighwayOpacity: 0.88, BeatLines: 1, LaneLines: 1, NoteSize: 1}
+	return Look{Material: MatClassic, Rim: RimSilver, Highway: HwSolid, HighwayOpacity: 0.88, BeatLines: 1, LaneLines: 1, TextureStrength: 0.8, NoteSize: 1}
 }
 
 // CurrentLook is the look in use. Change it with SetLook so cached note
@@ -161,6 +165,7 @@ func SetLook(l Look) {
 	if l != CurrentLook {
 		CurrentLook = l
 		clearSprites()
+		PrewarmTexture(l.Texture)
 	}
 }
 
@@ -359,15 +364,17 @@ func FromHSV(h, s, v float64) color.RGBA {
 // player's custom look. Missing colors and settings come from the Jam
 // theme (drum colors from the matching guitar colors).
 type ThemeSpec struct {
-	Name           string            `json:"name"`
-	Base           string            `json:"base,omitempty"` // custom looks: the theme they started from
-	Colors         map[string]string `json:"colors,omitempty"`
-	Material       string            `json:"material,omitempty"`
-	Rim            string            `json:"rim,omitempty"`
-	Highway        string            `json:"highway,omitempty"`
-	HighwayOpacity *float64          `json:"highway_opacity,omitempty"`
-	BeatLines      *float64          `json:"beat_lines,omitempty"`
-	LaneLines      *float64          `json:"lane_lines,omitempty"`
+	Name            string            `json:"name"`
+	Base            string            `json:"base,omitempty"` // custom looks: the theme they started from
+	Colors          map[string]string `json:"colors,omitempty"`
+	Material        string            `json:"material,omitempty"`
+	Rim             string            `json:"rim,omitempty"`
+	Highway         string            `json:"highway,omitempty"`
+	HighwayOpacity  *float64          `json:"highway_opacity,omitempty"`
+	BeatLines       *float64          `json:"beat_lines,omitempty"`
+	LaneLines       *float64          `json:"lane_lines,omitempty"`
+	Texture         string            `json:"texture,omitempty"`
+	TextureStrength *float64          `json:"texture_strength,omitempty"`
 }
 
 // Resolve turns a spec into a palette and look. noteSize is kept as is.
@@ -414,6 +421,10 @@ func (s *ThemeSpec) Resolve(noteSize float64) (Theme, Look) {
 	clamp(s.HighwayOpacity, 0, 1, &l.HighwayOpacity)
 	clamp(s.BeatLines, 0, 3, &l.BeatLines)
 	clamp(s.LaneLines, 0, 3, &l.LaneLines)
+	if s.Texture != "" {
+		l.Texture = ParseTexture(s.Texture)
+	}
+	clamp(s.TextureStrength, 0, 1, &l.TextureStrength)
 	return t, l
 }
 
@@ -430,14 +441,16 @@ func fp(v float64) *float64 { return &v }
 // CaptureSpec writes down a palette and look as a complete spec.
 func CaptureSpec(name string, t *Theme, l Look) ThemeSpec {
 	s := ThemeSpec{
-		Name:           name,
-		Colors:         map[string]string{},
-		Material:       l.Material.String(),
-		Rim:            l.Rim.String(),
-		Highway:        l.Highway.String(),
-		HighwayOpacity: fp(math.Round(l.HighwayOpacity*100) / 100),
-		BeatLines:      fp(math.Round(l.BeatLines*100) / 100),
-		LaneLines:      fp(math.Round(l.LaneLines*100) / 100),
+		Name:            name,
+		Colors:          map[string]string{},
+		Material:        l.Material.String(),
+		Rim:             l.Rim.String(),
+		Highway:         l.Highway.String(),
+		HighwayOpacity:  fp(math.Round(l.HighwayOpacity*100) / 100),
+		BeatLines:       fp(math.Round(l.BeatLines*100) / 100),
+		LaneLines:       fp(math.Round(l.LaneLines*100) / 100),
+		Texture:         l.Texture,
+		TextureStrength: fp(math.Round(l.TextureStrength*100) / 100),
 	}
 	for _, slot := range ColorSlots {
 		s.Colors[slot.ID] = Hex(Straight(*slot.ptrs(t)[0]))
@@ -450,8 +463,8 @@ func CurrentSpec(name string) ThemeSpec { return CaptureSpec(name, &DefaultTheme
 
 // BuiltinThemes are the themes that come with the game, Jam first.
 var BuiltinThemes = []ThemeSpec{
-	{Name: "Jam"},
-	{Name: "Neon", Material: "neon", Rim: "lane", Highway: "lanes", HighwayOpacity: fp(0.9), BeatLines: fp(1.2), LaneLines: fp(1.6), Colors: map[string]string{
+	{Name: "Jam", Texture: "rosewood"},
+	{Name: "Neon", Material: "neon", Rim: "lane", Highway: "lanes", Texture: "hex", TextureStrength: fp(0.6), HighwayOpacity: fp(0.9), BeatLines: fp(1.2), LaneLines: fp(1.6), Colors: map[string]string{
 		"green": "#39FF14", "red": "#FF2E63", "yellow": "#FFF01F", "blue": "#2D7BFF", "orange": "#FF7A00", "open": "#D04BFF",
 		"highway": "#05050A", "sp_highway": "#1A0533", "rails": "#FF2EC4", "rails_sp": "#00F0FF", "beat": "#C8B6FF",
 		"star_power": "#00F0FF", "accent": "#FF2EC4", "text": "#F8F0FF", "text_dim": "#9C8CB8", "panel": "#120A1EE8",
@@ -462,7 +475,7 @@ var BuiltinThemes = []ThemeSpec{
 		"highway": "#101830", "rails": "#FFFFFF", "accent": "#FFD200", "panel": "#141C38E8",
 		"bg_top": "#0A1028", "bg_bottom": "#18204A", "bg_glow": "#3050C0",
 	}},
-	{Name: "Chrome", Material: "metal", Rim: "silver", Highway: "gradient", Colors: map[string]string{
+	{Name: "Chrome", Material: "metal", Rim: "silver", Highway: "gradient", Texture: "brushed", Colors: map[string]string{
 		"green": "#1FB84A", "red": "#D92B2B", "yellow": "#F2C014", "blue": "#2470E6", "orange": "#F2761A", "open": "#9A52E6",
 		"highway": "#15171C", "rails": "#D8DEE8", "beat": "#E0E6F0", "accent": "#9FB4D0", "text": "#EEF2F7", "panel": "#181A20E8",
 		"bg_top": "#0A0B0E", "bg_bottom": "#22252C", "bg_glow": "#607080",
@@ -472,12 +485,12 @@ var BuiltinThemes = []ThemeSpec{
 		"highway": "#2A2438", "rails": "#F4E8FF", "star_power": "#B8F4FF", "accent": "#FF9AC8", "text": "#FFF7FB", "text_dim": "#B6A8C6",
 		"panel": "#2A2238E8", "bg_top": "#1C1726", "bg_bottom": "#3A2E4F", "bg_glow": "#FFB6E1",
 	}},
-	{Name: "Midnight", Material: "matte", Rim: "black", Highway: "gradient", BeatLines: fp(0.8), Colors: map[string]string{
+	{Name: "Midnight", Material: "matte", Rim: "black", Highway: "gradient", Texture: "stars", BeatLines: fp(0.8), Colors: map[string]string{
 		"green": "#3FA66B", "red": "#C2484E", "yellow": "#D9B44A", "blue": "#4C7FC2", "orange": "#D9823F", "open": "#8E6BC2",
 		"highway": "#0A0E18", "rails": "#6E7FA0", "beat": "#8090B0", "accent": "#5C8FD6", "text": "#DCE3F0", "text_dim": "#7A859C",
 		"panel": "#0E1424E8", "bg_top": "#03050A", "bg_bottom": "#0B1222", "bg_glow": "#1E3A6E",
 	}},
-	{Name: "Gold", Material: "metal", Rim: "gold", Highway: "gradient", Colors: map[string]string{
+	{Name: "Gold", Material: "metal", Rim: "gold", Highway: "gradient", Texture: "diamond", TextureStrength: fp(0.6), Colors: map[string]string{
 		"highway": "#140E08", "rails": "#E8C36A", "beat": "#F0D9A0", "accent": "#E8B33A", "text": "#FFF6E6", "text_dim": "#B8A486",
 		"panel": "#1E150BE8", "bg_top": "#0A0703", "bg_bottom": "#2A1A08", "bg_glow": "#B07A20",
 	}},

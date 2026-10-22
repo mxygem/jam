@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"path/filepath"
 
 	"github.com/mxygem/jam/internal/render"
 )
@@ -31,6 +32,9 @@ func lookItems(a *App, m *settingsMenu, inSong bool) []Item {
 					m.startTyping("Name the theme", name, func(s string) { saveThemeFile(a, s) })
 				}},
 			Item{Label: "Open the themes folder", Hint: ThemesDir(), Activate: func() { openFolder(a, ThemesDir()) }},
+			Item{Label: "Open the highway images folder", Hint: "Images here show up under Highway texture", Activate: func() {
+				openFolder(a, highwayImagesDir())
+			}},
 			Item{Label: "Preview", Hint: "Which part plays in the preview",
 				Value:  func() string { return map[bool]string{false: "Guitar", true: "Drums"}[m.previewDrums] },
 				Adjust: func(int) { m.previewDrums = !m.previewDrums }},
@@ -75,6 +79,17 @@ func lookItems(a *App, m *settingsMenu, inSong bool) []Item {
 			func(v int) string { return render.HighwayStyle(v).Label() }),
 		amount("Highway opacity", "How solid the highway is: lower lets the background show through", 0, 1,
 			func(l render.Look) float64 { return l.HighwayOpacity }, func(l *render.Look, v float64) { l.HighwayOpacity = v }),
+		Item{Label: "Highway texture", Hint: "Scrolls with the notes. Add your own images to customs\\highways; green looks for new ones",
+			Value: func() string { return truncateW(render.TextureLabel(render.CurrentLook.Texture), render.UI, 32, 380) },
+			Adjust: func(d int) {
+				editLook(a, func(_ *render.Theme, l *render.Look) { l.Texture = cycleTexture(l.Texture, sign(d)) })
+			},
+			Activate: func() {
+				n := len(render.CustomHighwayImages(true))
+				a.Toast(fmt.Sprintf("%s in %s", plural(n, "highway image"), highwayImagesDir()))
+			}},
+		amount("Texture strength", "How much the texture shows over the highway color", 0, 1,
+			func(l render.Look) float64 { return l.TextureStrength }, func(l *render.Look, v float64) { l.TextureStrength = v }),
 		amount("Beat lines", "How bright the lines across the highway are (0% hides them)", 0, 3,
 			func(l render.Look) float64 { return l.BeatLines }, func(l *render.Look, v float64) { l.BeatLines = v }),
 		amount("Lane lines", "How bright the lines between lanes are (0% hides them)", 0, 3,
@@ -100,4 +115,20 @@ func lookItems(a *App, m *settingsMenu, inSong bool) []Item {
 		})
 	}
 	return items
+}
+
+// highwayImagesDir is where players put their own highway textures.
+func highwayImagesDir() string { return filepath.Join(CustomsDir(), "highways") }
+
+// cycleTexture steps through no texture, the built-ins and the player's
+// images.
+func cycleTexture(cur string, d int) string {
+	list := render.HighwayTextures()
+	i := 0
+	for k, id := range list {
+		if id == cur {
+			i = k
+		}
+	}
+	return list[((i+d)%len(list)+len(list))%len(list)]
 }

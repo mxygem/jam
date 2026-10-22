@@ -164,6 +164,12 @@ func (h *Highway) Draw(dst *ebiten.Image, f *FrameState) {
 		c0, c1 := WithAlpha(s0, fadeFar(z0)*fadePast(z0)*opacity), WithAlpha(s1, fadeFar(z1)*fadePast(z1)*opacity)
 		b.Quad(dst, left(z0), h.Y(z0), right(z0), h.Y(z0), right(z1), h.Y(z1), left(z1), h.Y(z1), c0, c0, c1, c1)
 	}
+	if lk.Texture != TextureNone && lk.TextureStrength > 0 {
+		if tex := loadTexture(lk.Texture); tex != nil {
+			b.Flush(dst)
+			h.drawTexture(dst, tex, lanes, f.Now, surf, th.Beat, th.SPHighway, f.SPActive, lk.TextureStrength*opacity)
+		}
+	}
 	switch lk.Highway {
 	case HwLanes:
 		// each lane tinted in its note color, strongest near the strike line

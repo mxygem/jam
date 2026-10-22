@@ -48,6 +48,8 @@ type backgrounds struct {
 }
 
 func newBackgrounds(dir string) *backgrounds {
+	render.HighwayImageDir = dir // highway textures live in the same folder
+	render.CustomHighwayImages(true)
 	return &backgrounds{dir: dir, failed: map[string]bool{}}
 }
 
@@ -87,6 +89,9 @@ func scanBackgrounds(dir string) []string {
 		rel, err := filepath.Rel(dir, p)
 		if err != nil {
 			return nil
+		}
+		if render.IsHighwayImageDir(filepath.Dir(rel)) {
+			return nil // highway textures, not backgrounds
 		}
 		all = append(all, rel)
 		if strings.Contains(strings.ToLower(filepath.Dir(rel)), "background") {
