@@ -2,6 +2,8 @@ package app
 
 import (
 	"fmt"
+	"image"
+	"image/png"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -9,10 +11,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hajimehoshi/ebiten/v2"
+
 	"github.com/mxygem/jam/internal/action"
 	"github.com/mxygem/jam/internal/chart"
 	"github.com/mxygem/jam/internal/config"
 	"github.com/mxygem/jam/internal/engine"
+	"github.com/mxygem/jam/internal/render"
 	"github.com/mxygem/jam/internal/replay"
 )
 
@@ -158,4 +163,120 @@ func TestResultsSingleRun(t *testing.T) {
 	r.tab = tabProgress
 	h.idle(0.1)
 	h.shot("results-single-progress")
+}
+
+// TestBreakdownWrapsAndScrolls: long Breakdown text wraps to the panel and
+// up/down scroll through it.
+func TestBreakdownWrapsAndScrolls(t *testing.T) {
+	h := newHarness(t)
+	withDemoLibrary(h)
+	song := h.a.library[0]
+	c, tr, paths := recordAttempts(h, song, 1)
+	rec, _ := replay.Load(paths[0])
+	r := NewResults(h.a, rec, paths[0], c, tr, song)
+	r.an.Tips = append(r.an.Tips, strings.Repeat("This tip is long enough that it has to wrap onto more lines in the panel. ", 4))
+	for i := 0; i < 30; i++ {
+		r.an.Breaks = append(r.an.Breaks, replay.StreakBreak{Time: float64(i), Lost: 10 + i, Cause: "miss", Section: "A section with a fairly long name"})
+	}
+	h.a.scene = r
+	r.tab = 2
+	const w = 814.0
+	lines := r.breakdownLines(w - 20)
+	if len(lines) <= breakdownVisible {
+		t.Fatalf("only %d lines; the test needs more than fit", len(lines))
+	}
+	for _, l := range lines {
+		if tw, _ := render.Measure(l.s, render.UI, breakdownSize); tw > w-20 {
+			t.Fatalf("line wider than the panel (%.0f px): %q", tw, l.s)
+		}
+	}
+	h.idle(0.1)
+	h.shot("breakdown-top")
+	for i := 0; i < len(lines)+5; i++ {
+		h.tap(bitDPadDown)
+	}
+	h.idle(0.1)
+	if want := len(lines) - breakdownVisible; r.scroll != want {
+		t.Fatalf("scrolled to %d, want the last page at %d", r.scroll, want)
+	}
+	h.shot("breakdown-bottom")
+	h.tap(bitDPadUp)
+	if r.scroll != len(lines)-breakdownVisible-1 {
+		t.Fatalf("up didn't scroll back: %d", r.scroll)
+	}
+}
+
+// TestResultsLargeCharts: F (here toggleLarge) draws the charts across the
+// whole window, is remembered, and switches back. With JAM_SHOTS it also
+// draws every visual page large on a 1920 and a 2580 pixel wide window.
+func TestResultsLargeCharts(t *testing.T) {
+	h := newHarness(t)
+	withDemoLibrary(h)
+	song := h.a.library[0]
+	c, tr, paths := recordAttempts(h, song, 3)
+	last := paths[len(paths)-1]
+	rec, _ := replay.Load(last)
+	r := NewResults(h.a, rec, last, c, tr, song)
+	h.a.scene = r
+	for i := 0; i < 400; i++ {
+		h.idle(0.02)
+		if _, done := r.history(); done {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	r.toggleLarge(h.a) // from the overview: opens the charts large
+	if !h.a.Settings.LargeCharts || r.tab != tabTiming || !r.large(h.a) {
+		t.Fatalf("large %v on tab %d", h.a.Settings.LargeCharts, r.tab)
+	}
+	if st, _ := config.Load(); !st.LargeCharts {
+		t.Fatal("large charts not saved")
+	}
+	r.tab = 0
+	if r.large(h.a) {
+		t.Fatal("the overview pages always draw normally")
+	}
+	for i := tabTiming; i < len(resultTabs); i++ {
+		r.tab, r.scroll = i, 0
+		h.idle(0.05)
+		name := strings.ReplaceAll(strings.ToLower(resultTabs[i]), " ", "-")
+		h.shot("large-" + name)
+		shotWide(h, r, 2580, "large-wide-"+name)
+		if vizW != vizNormalW || vizH != vizNormalH {
+			t.Fatal("the large area leaked into normal drawing")
+		}
+	}
+	r.tab = tabTiming
+	r.toggleLarge(h.a)
+	if h.a.Settings.LargeCharts || r.large(h.a) {
+		t.Fatal("F should switch back to the normal view")
+	}
+}
+
+// shotWide draws the scene on a window w pixels wide (the canvas in the
+// middle, as App.Draw does) and saves it when JAM_SHOTS is set.
+func shotWide(h *harness, r *Results, w int, name string) {
+	dir := os.Getenv("JAM_SHOTS")
+	if dir == "" {
+		return
+	}
+	full := ebiten.NewImage(w, render.ScreenH)
+	canvas := ebiten.NewImage(render.ScreenW, render.ScreenH)
+	ox := float64(w-render.ScreenW) / 2
+	h.a.viewW, h.a.viewH = w, render.ScreenH
+	defer func() { h.a.viewW, h.a.viewH = 0, 0 }()
+	render.SetStage(full, ox, 0)
+	r.Draw(canvas, h.a)
+	render.SetStage(nil, 0, 0)
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Translate(ox, 0)
+	full.DrawImage(canvas, op)
+	img := image.NewRGBA(full.Bounds())
+	full.ReadPixels(img.Pix)
+	f, err := os.Create(filepath.Join(dir, name+".png"))
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	defer f.Close()
+	_ = png.Encode(f, img)
 }

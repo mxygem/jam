@@ -31,7 +31,7 @@ func drawProgressView(dst *ebiten.Image, h *replay.History) {
 	}
 	gap := 48.0
 	cw := (vizW - 2*gap) / 3
-	ch := 250.0
+	ch := math.Max(250, vizH-450)
 	var b render.Batch
 	type label struct {
 		s    string
@@ -92,7 +92,7 @@ func drawProgressView(dst *ebiten.Image, h *replay.History) {
 		render.Text(dst, l.s, f, 24, l.x, l.y, c, l.al)
 	}
 	// Table of the latest attempts, newest first.
-	ty := vizY + 360
+	ty := vizY + ch + 110
 	cols := []float64{0, 70, 420, 620, 800, 1000, 1240}
 	heads := []string{"#", "When", "Score", "Hit", "Best streak", "Overstrums", "Timing"}
 	if h.Drums {
@@ -105,7 +105,7 @@ func drawProgressView(dst *ebiten.Image, h *replay.History) {
 		}
 		render.Text(dst, strings.ToUpper(hd), render.CondBold, 20, vizX+cols[i], ty, th.TextDim, al)
 	}
-	rows := min(len(A), 7)
+	rows := min(len(A), max(3, int((vizY+vizH-40-(ty+36))/40)))
 	for k := 0; k < rows; k++ {
 		i := len(A) - 1 - k
 		a := A[i]
@@ -171,10 +171,10 @@ func attemptWindow(n, fit, back int) (lo, hi, backClamped int) {
 func drawSectionHistory(dst *ebiten.Image, h *replay.History, back int) int {
 	secs := sectionsWithNotes(h)
 	labelW := 220.0
-	cw := math.Min(64, math.Max(26, (vizW-labelW)/float64(len(h.Attempts))))
+	cw := math.Min(64*vizW/vizNormalW, math.Max(26, (vizW-labelW)/float64(len(h.Attempts))))
 	fit := int((vizW - labelW) / cw)
 	lo, hi, back := attemptWindow(len(h.Attempts), fit, back)
-	rowH := math.Min(44, (vizH-110)/float64(max(1, len(secs))))
+	rowH := math.Min(44*vizGrow(), (vizH-110)/float64(max(1, len(secs))))
 	y0 := vizY + 34
 	var b render.Batch
 	for ri, si := range secs {

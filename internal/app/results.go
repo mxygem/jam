@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"math"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -16,6 +17,7 @@ import (
 	"github.com/mxygem/jam/internal/osopen"
 	"github.com/mxygem/jam/internal/render"
 	"github.com/mxygem/jam/internal/replay"
+	"github.com/mxygem/jam/internal/rich"
 )
 
 // Results shows the score and the post-play analysis of a recording, the
@@ -136,21 +138,93 @@ func (r *Results) openReport(a *App) {
 	a.Toast("Opened the report in your browser")
 }
 
-// tabRects are the tab bar's labels, for mouse clicks.
-func tabRects() [][4]float64 {
+// Tab bar placement: under the header normally, along the top of the
+// window with large charts.
+const (
+	tabSize      = 28.0
+	tabSizeLarge = 25.0
+)
+
+// tabRects are the tab bar's labels (x, y, w, h), for drawing and clicks.
+func tabRects(x0, y, size float64) [][4]float64 {
 	var out [][4]float64
-	x := 96.0
+	x := x0
+	gap := size * 30 / 28
 	for i, name := range resultTabs {
 		for _, g := range resultGroups {
 			if g == i {
-				x += 26
+				x += gap - 4
 			}
 		}
-		w, _ := render.Measure(name, render.CondBold, 28)
-		out = append(out, [4]float64{x, 206, w, 40})
-		x += w + 30
+		w, _ := render.Measure(name, render.CondBold, size)
+		out = append(out, [4]float64{x, y, w, size * 40 / 28})
+		x += w + gap
 	}
 	return out
+}
+
+// large reports whether the current page draws its charts across the
+// whole window.
+func (r *Results) large(a *App) bool { return r.tab >= tabTiming && a.Settings.LargeCharts }
+
+// stageSize is the whole window in canvas pixels and where the 1920x1080
+// canvas sits in it.
+func stageSize(a *App) (w, h, ox, oy float64) {
+	if a.viewW == 0 {
+		return render.ScreenW, render.ScreenH, 0, 0
+	}
+	ox, oy = a.canvasOffset()
+	return float64(a.viewW), float64(a.viewH), ox, oy
+}
+
+// resultButton is a clickable pill at the top right.
+type resultButton struct {
+	label   string
+	x, y, w float64
+	act     func(a *App)
+}
+
+const resultButtonH = 52.0
+
+// buttons are the top-right buttons, in canvas coordinates normally and
+// window coordinates with large charts.
+func (r *Results) buttons(a *App) []resultButton {
+	var out []resultButton
+	if r.view == nil {
+		return out
+	}
+	right, y := 1860.0, 40.0
+	if r.large(a) {
+		w, _, _, _ := stageSize(a)
+		right, y = w-24, 14
+	}
+	add := func(label string, act func(a *App)) {
+		tw, _ := render.Measure(label, render.CondBold, 26)
+		bw := tw + 44
+		right -= bw
+		out = append(out, resultButton{label, right, y, bw, act})
+		right -= 14
+	}
+	add("Open in browser (B)", r.openReport)
+	switch {
+	case r.large(a):
+		add("Normal view (F)", r.toggleLarge)
+	case r.tab >= tabTiming:
+		add("Large view (F)", r.toggleLarge)
+	}
+	return out
+}
+
+// toggleLarge switches the charts between the panel and the whole window
+// (a saved setting). From the overview pages it opens the charts large.
+func (r *Results) toggleLarge(a *App) {
+	if r.tab < tabTiming {
+		r.tab, r.scroll = tabTiming, 0
+		a.Settings.LargeCharts = true
+	} else {
+		a.Settings.LargeCharts = !a.Settings.LargeCharts
+	}
+	_ = a.Settings.Save()
 }
 
 func (r *Results) Update(a *App) error {
@@ -158,14 +232,27 @@ func (r *Results) Update(a *App) error {
 	if inpututil.IsKeyJustPressed(ebiten.KeyB) {
 		r.openReport(a)
 	}
-	if m := &a.Mouse; m.Click {
-		for i, rc := range tabRects() {
-			if m.In(rc[0]-10, rc[1]-6, rc[2]+20, rc[3]+12) {
-				r.tab, r.scroll = i, 0
+	if inpututil.IsKeyJustPressed(ebiten.KeyF) && r.view != nil {
+		r.toggleLarge(a)
+	}
+	if m := a.Mouse; m.Click {
+		rects := tabRects(96, 206, tabSize)
+		if r.large(a) {
+			_, _, ox, oy := stageSize(a)
+			m.X, m.Y = m.X+ox, m.Y+oy
+			rects = tabRects(40, 24, tabSizeLarge)
+		}
+		clicked := false
+		for _, b := range r.buttons(a) {
+			if m.In(b.x, b.y, b.w, resultButtonH) {
+				b.act(a)
+				clicked = true
 			}
 		}
-		if m.In(1600, 40, 260, 56) {
-			r.openReport(a)
+		for i, rc := range rects {
+			if !clicked && m.In(rc[0]-10, rc[1]-6, rc[2]+20, rc[3]+12) {
+				r.tab, r.scroll = i, 0
+			}
 		}
 	}
 	if w := a.Mouse.Wheel; w != 0 {
@@ -238,10 +325,14 @@ func (r *Results) Draw(dst *ebiten.Image, a *App) {
 	if !rec.Completed {
 		title += "  (incomplete)"
 	}
+	if r.large(a) {
+		r.drawLarge(dst, a)
+		return
+	}
 	Header(dst, title, fmt.Sprintf("%s   %s %s   %s", rec.Song.Artist, chartTitle(rec.Difficulty), chartTitle(rec.Instrument), rec.Started.Format("Jan 2 15:04")))
 
-	r.drawTabBar(dst)
-	r.drawReportButton(dst, a)
+	r.drawTabBar(dst, 96, 206, tabSize)
+	r.drawButtons(dst, a, a.Mouse.X, a.Mouse.Y)
 	if r.tab >= tabTiming {
 		r.drawPage(dst, a)
 		r.drawFooter(dst, a)
@@ -330,46 +421,81 @@ func (r *Results) Draw(dst *ebiten.Image, a *App) {
 }
 
 // drawTabBar draws every page's name with the current one underlined.
-func (r *Results) drawTabBar(dst *ebiten.Image) {
-	rects := tabRects()
+func (r *Results) drawTabBar(dst *ebiten.Image, x0, y, size float64) {
+	rects := tabRects(x0, y, size)
+	k := size / 28
 	for i, name := range resultTabs {
 		rc := rects[i]
 		c := th.TextDim
 		if i == r.tab {
 			c = th.Text
-			render.FillRect(dst, rc[0], rc[1]+38, rc[2], 4, th.Accent)
+			render.FillRect(dst, rc[0], rc[1]+38*k, rc[2], 4, th.Accent)
 		}
 		for _, g := range resultGroups {
 			if g == i {
-				render.FillRect(dst, rc[0]-28, rc[1]+6, 2, 28, render.WithAlpha(th.TextDim, 0.4))
+				render.FillRect(dst, rc[0]-28*k, rc[1]+6*k, 2, 28*k, render.WithAlpha(th.TextDim, 0.4))
 			}
 		}
-		render.Text(dst, name, render.CondBold, 28, rc[0], rc[1], c, render.Left)
+		render.Text(dst, name, render.CondBold, size, rc[0], rc[1], c, render.Left)
 	}
 }
 
-func (r *Results) drawReportButton(dst *ebiten.Image, a *App) {
-	if r.view == nil {
-		return
+// drawButtons draws the top-right buttons; mx, my is the pointer in the
+// same coordinates.
+func (r *Results) drawButtons(dst *ebiten.Image, a *App, mx, my float64) {
+	for _, b := range r.buttons(a) {
+		c := render.WithAlpha(th.Panel, 1)
+		if mx >= b.x && mx < b.x+b.w && my >= b.y && my < b.y+resultButtonH {
+			c = render.Lighten(c, 0.12)
+		}
+		render.RoundRect(dst, b.x, b.y, b.w, resultButtonH, 14, c)
+		render.Text(dst, b.label, render.CondBold, 26, b.x+b.w/2, b.y+10, th.Text, render.Center)
 	}
-	x, y, w, h := 1600.0, 40.0, 260.0, 56.0
-	c := render.WithAlpha(th.Panel, 1)
-	if a.Mouse.In(x, y, w, h) {
-		c = render.Lighten(c, 0.12)
-	}
-	render.RoundRect(dst, x, y, w, h, 14, c)
-	render.Text(dst, "Open in browser (B)", render.CondBold, 26, x+w/2, y+12, th.Text, render.Center)
 }
 
-// drawPage draws one of the full-width visual pages.
+// drawPage draws one of the visual pages in the panel under the tabs.
 func (r *Results) drawPage(dst *ebiten.Image, a *App) {
 	Panel(dst, 72, 256, 1776, 744)
+	setVizArea(vizNormalX, vizNormalY, vizNormalW, vizNormalH)
+	r.drawPageContent(dst, &a.Mouse)
+}
+
+// drawLarge draws a visual page across the whole window (which can be
+// wider than the canvas): tabs along the top, the chart filling the rest.
+func (r *Results) drawLarge(dst *ebiten.Image, a *App) {
+	img, w, h, ox, oy := render.Backdrop(dst)
+	m := a.Mouse
+	m.X, m.Y = m.X+ox, m.Y+oy
+	r.drawTabBar(img, 40, 24, tabSizeLarge)
+	r.drawButtons(img, a, m.X, m.Y)
+	Panel(img, 24, 80, w-48, h-80-64)
+	setVizArea(56, 112, w-112, h-112-92)
+	defer setVizArea(vizNormalX, vizNormalY, vizNormalW, vizNormalH)
+	r.drawPageContent(img, &m)
+
+	// Bottom line: what this is on the left, controls on the right.
+	rec := r.rec
+	what := fmt.Sprintf("%s · %s   %s %s   %s", rich.Plain(rec.Song.Name), rich.Plain(rec.Song.Artist), chartTitle(rec.Difficulty), chartTitle(rec.Instrument), rec.Started.Format("Jan 2 15:04"))
+	keys := "Enter / green back     Left/right pages     Up/down scroll     F normal view"
+	if r.song != nil && a.Band == nil {
+		keys = "Enter / green song list     Tab / yellow retry     Left/right pages     Up/down scroll     F normal view"
+	}
+	if a.Run != nil && r.song != nil {
+		keys = "Enter / green next     Esc / red leave playlist     Left/right pages     Up/down scroll     F normal view"
+	}
+	kw, _ := render.Measure(keys, render.Cond, 24)
+	render.Text(img, keys, render.Cond, 24, w-40, h-50, th.TextDim, render.Right)
+	render.Text(img, truncateW(what, render.Cond, 24, math.Max(200, w-80-kw-40)), render.Cond, 24, 40, h-50, th.TextDim, render.Left)
+}
+
+// drawPageContent draws the current visual page in the viz area; m is the
+// pointer in dst's coordinates.
+func (r *Results) drawPageContent(dst *ebiten.Image, m *Mouse) {
 	if r.view == nil {
 		render.Text(dst, "The chart for this run isn't available, so there's nothing to draw.", render.UI, 26, vizX, vizY+20, th.TextDim, render.Left)
 		return
 	}
 	v := r.view
-	m := &a.Mouse
 	switch r.tab {
 	case tabTiming:
 		drawTimingView(dst, v, m)
@@ -502,41 +628,98 @@ func (r *Results) drawTab(dst *ebiten.Image, x, y, w float64) {
 			render.Text(dst, truncateW(m.Reason, render.UI, 24, w-430), render.UI, 24, x+w, yy+2, th.Text, render.Right)
 		}
 	case 2:
-		yy := y
-		line := func(s string, c color.RGBA) {
-			render.Text(dst, truncateW(s, render.UI, 25, w), render.UI, 25, x, yy, c, render.Left)
-			yy += 40
-		}
-		for _, t := range an.Tips {
-			line(t, th.Text)
-		}
-		if len(an.Tips) > 0 {
-			yy += 16
-		}
-		for _, k := range an.Kinds {
-			pct := 0.0
-			if k.Total > 0 {
-				pct = float64(k.Hits) / float64(k.Total) * 100
+		r.drawBreakdown(dst, x, y, w)
+	}
+}
+
+// breakdownLine is one line of the Breakdown tab ("" is a gap).
+type breakdownLine struct {
+	s string
+	c color.RGBA
+}
+
+const (
+	breakdownSize  = 25.0
+	breakdownLineH = 38.0
+)
+
+// breakdownLines is the Breakdown tab's text wrapped to width w.
+func (r *Results) breakdownLines(w float64) []breakdownLine {
+	an := r.an
+	var out []breakdownLine
+	add := func(s string, c color.RGBA, indent string) {
+		for i, l := range wrapText(s, render.UI, breakdownSize, w) {
+			if i > 0 {
+				l = indent + l
 			}
-			line(fmt.Sprintf("%-14s %d/%d (%.0f%%)   mean %+.1f ms", k.Kind, k.Hits, k.Total, pct, k.MeanMs), th.TextDim)
-		}
-		if an.SustainTotal > 0 {
-			line(fmt.Sprintf("Sustains held to the end: %d/%d (avg %.0f%% held)", an.SustainDone, an.SustainTotal, an.SustainAvg*100), th.TextDim)
-		}
-		if an.FretLeadMs > 0 {
-			line(fmt.Sprintf("Frets landed a median %.0f ms before each strum", an.FretLeadMs), th.TextDim)
-		}
-		if len(an.Breaks) > 0 {
-			yy += 10
-			line("Streak breaks:", th.Text)
-			for i, br := range an.Breaks {
-				if i >= 5 {
-					break
-				}
-				line(fmt.Sprintf("  %s  lost %d in %s (%s)", fmtClock(br.Time), br.Lost, br.Section, br.Cause), th.TextDim)
-			}
+			out = append(out, breakdownLine{l, c})
 		}
 	}
+	gap := func() {
+		if len(out) > 0 && out[len(out)-1].s != "" {
+			out = append(out, breakdownLine{})
+		}
+	}
+	for _, t := range an.Tips {
+		add(t, th.Text, "")
+	}
+	gap()
+	for _, k := range an.Kinds {
+		pct := 0.0
+		if k.Total > 0 {
+			pct = float64(k.Hits) / float64(k.Total) * 100
+		}
+		add(fmt.Sprintf("%s: %d/%d (%.0f%%), mean %+.1f ms", strings.Title(k.Kind), k.Hits, k.Total, pct, k.MeanMs), th.TextDim, "    ")
+	}
+	if an.SustainTotal > 0 {
+		add(fmt.Sprintf("Sustains held to the end: %d/%d (avg %.0f%% held)", an.SustainDone, an.SustainTotal, an.SustainAvg*100), th.TextDim, "    ")
+	}
+	if an.FretLeadMs > 0 {
+		add(fmt.Sprintf("Frets landed a median %.0f ms before each strum", an.FretLeadMs), th.TextDim, "    ")
+	}
+	if len(an.Breaks) > 0 {
+		gap()
+		add(fmt.Sprintf("Streak breaks (%d):", len(an.Breaks)), th.Text, "")
+		for _, br := range an.Breaks {
+			add(fmt.Sprintf("%s  lost %d in %s (%s)", fmtClock(br.Time), br.Lost, br.Section, br.Cause), th.TextDim, "        ")
+		}
+	}
+	for len(out) > 0 && out[len(out)-1].s == "" {
+		out = out[:len(out)-1]
+	}
+	return out
+}
+
+// breakdownVisible is how many lines fit in the right panel.
+const breakdownVisible = 17
+
+// drawBreakdown draws the wrapped Breakdown text from line r.scroll, with a
+// scroll bar when it doesn't all fit.
+func (r *Results) drawBreakdown(dst *ebiten.Image, x, y, w float64) {
+	lines := r.breakdownLines(w - 20)
+	if len(lines) == 0 {
+		render.Text(dst, "Nothing to add for this run.", render.UI, breakdownSize, x, y, th.TextDim, render.Left)
+		return
+	}
+	vis := breakdownVisible
+	r.scroll = min(r.scroll, max(0, len(lines)-vis))
+	for i := r.scroll; i < len(lines) && i < r.scroll+vis; i++ {
+		if l := lines[i]; l.s != "" {
+			render.Text(dst, l.s, render.UI, breakdownSize, x, y+float64(i-r.scroll)*breakdownLineH, l.c, render.Left)
+		}
+	}
+	if len(lines) <= vis {
+		return
+	}
+	// Scroll bar along the panel's right edge, and where you are.
+	trackH := float64(vis)*breakdownLineH - 8
+	bx := x + w + 8
+	render.FillRect(dst, bx, y, 4, trackH, render.WithAlpha(th.TextDim, 0.2))
+	thumb := math.Max(30, trackH*float64(vis)/float64(len(lines)))
+	ty := y + (trackH-thumb)*float64(r.scroll)/float64(len(lines)-vis)
+	render.RoundRect(dst, bx-1, ty, 6, thumb, 3, th.TextDim)
+	render.Text(dst, fmt.Sprintf("lines %d-%d of %d   up/down to scroll", r.scroll+1, min(len(lines), r.scroll+vis), len(lines)),
+		render.Cond, 22, x+w, y+float64(vis)*breakdownLineH+6, th.TextDim, render.Right)
 }
 
 func (r *Results) drawLanes(dst *ebiten.Image, m replay.MissDetail, x, y float64) {

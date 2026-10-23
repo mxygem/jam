@@ -17,13 +17,29 @@ import (
 // player's history on the part. The same views are in the HTML report
 // (replay.WriteReport); these are drawn with the game's own look.
 
-// vizArea is where a full-width visual page draws (inside its panel).
-const (
+// The rectangle a visual page draws in. setVizArea picks it before each
+// page draws: the panel under the tabs, or (large charts) most of the
+// window, which can be wider than the 1920x1080 canvas.
+var (
 	vizX = 96.0
 	vizY = 276.0
 	vizW = 1728.0
 	vizH = 700.0
 )
+
+// The normal area, inside the panel under the results tabs.
+const (
+	vizNormalX = 96.0
+	vizNormalY = 276.0
+	vizNormalW = 1728.0
+	vizNormalH = 700.0
+)
+
+func setVizArea(x, y, w, h float64) { vizX, vizY, vizW, vizH = x, y, w, h }
+
+// vizGrow is how much taller than the normal area the current one is
+// (1 in the normal area), for sizes that should grow with it.
+func vizGrow() float64 { return math.Max(1, vizH/vizNormalH) }
 
 var (
 	catColors = map[string]color.RGBA{
@@ -107,7 +123,9 @@ func legend(dst *ebiten.Image, x, y float64, items ...any) float64 {
 // average, misses and overstrums underneath, and the streak below that.
 func drawTimingView(dst *ebiten.Image, v *replay.RunView, m *Mouse) {
 	x0, y0, w := vizX+56, vizY+34, vizW-56
-	plotH, rowH, streakH := 300.0, 24.0, 120.0
+	// Extra height (large charts) goes mostly to the timing plot.
+	extra := math.Max(0, vizH-640)
+	plotH, rowH, streakH := 300.0+extra*0.7, 24.0, 120.0+extra*0.3
 	yMiss := y0 + plotH + 12
 	yOver := yMiss + rowH + 4
 	yStreak := yOver + rowH + 22
@@ -328,13 +346,20 @@ type stripLayout struct {
 }
 
 func newStripLayout(length float64, lanes int) stripLayout {
-	l := stripLayout{rowSecs: 20, lanes: lanes, laneH: 15}
+	// About 83 px per second of song, whatever the width; lanes grow a
+	// little with the height.
+	l := stripLayout{rowSecs: 20 * (vizW - 70) / (vizNormalW - 70), lanes: lanes, laneH: 15 * math.Min(1.35, vizGrow())}
 	l.rows = max(1, int(math.Ceil(length/l.rowSecs)))
 	l.rowSecs = length / float64(l.rows)
 	if l.rowSecs < 1 {
 		l.rowSecs = 1
 	}
 	l.blockH = float64(lanes)*l.laneH + 46
+	// A song that fits with room to spare gets taller lanes (up to double).
+	if fit := (vizH - 40) / float64(l.rows); fit > l.blockH && lanes > 0 {
+		l.laneH = math.Min(l.laneH*2, (fit-46)/float64(lanes))
+		l.blockH = float64(lanes)*l.laneH + 46
+	}
 	return l
 }
 
@@ -427,15 +452,16 @@ func drawStrip(dst *ebiten.Image, rows []replay.LaneRow, gems []stripGem, sectio
 			}
 			c = render.WithAlpha(c, g.alpha)
 			gy := laneY(r, row)
+			gr := math.Min(7, l.laneH/3) // 5 px on normal lanes, a bit bigger on tall ones
 			switch {
 			case g.ringColor.A != 0:
-				b.Dot(dst, gx, gy, 5, c, c)
-				b.Ring(dst, gx, gy, 6.5, 6.5, 2.4, g.ringColor, g.ringColor)
+				b.Dot(dst, gx, gy, gr, c, c)
+				b.Ring(dst, gx, gy, gr*1.3, gr*1.3, 2.4, g.ringColor, g.ringColor)
 			case g.ring:
-				b.Dot(dst, gx, gy, 5, c, c)
-				b.Ring(dst, gx, gy, 6, 6, 2.2, th.Bad, th.Bad)
+				b.Dot(dst, gx, gy, gr, c, c)
+				b.Ring(dst, gx, gy, gr*1.2, gr*1.2, 2.2, th.Bad, th.Bad)
 			default:
-				b.Dot(dst, gx, gy, 5, c, c)
+				b.Dot(dst, gx, gy, gr, c, c)
 			}
 			hots = append(hots, hot{gx, gy, g.info})
 		}
@@ -540,7 +566,7 @@ func drawFretView(dst *ebiten.Image, v *replay.RunView, firstCol int) int {
 	fit := int((vizW - labelW) / cw)
 	firstCol = min(firstCol, max(0, len(cols)-fit))
 	cols = cols[firstCol:min(len(cols), firstCol+fit)]
-	rowH := math.Min(64, (vizH-140)/float64(len(v.Rows)+1))
+	rowH := math.Min(64*vizGrow(), (vizH-140)/float64(len(v.Rows)+1))
 	y0 := vizY + 34
 	for ci, si := range cols {
 		x := vizX + labelW + float64(ci)*cw
@@ -640,6 +666,9 @@ func drawReportCard(dst *ebiten.Image, v *replay.RunView, first int) {
 	vis := cardVisible()
 	first = min(first, max(0, len(rows)-vis))
 	cx := []float64{0, 290, 400, 700, 830, 1180, 1330, 1500, 1728}
+	for i := range cx {
+		cx[i] *= vizW / vizNormalW
+	}
 	over := "Over"
 	if v.Drums {
 		over = "Extra"

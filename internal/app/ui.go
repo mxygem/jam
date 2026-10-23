@@ -407,27 +407,33 @@ func plural(n int, word string) string {
 
 // drawWrapped draws text word-wrapped to width w (at most 3 lines).
 func drawWrapped(dst *ebiten.Image, s string, f render.Font, size, x, y, w float64, c color.Color) {
-	words := strings.Fields(s)
-	line := ""
-	lines := 0
-	flush := func() {
-		if line != "" && lines < 3 {
-			render.Text(dst, line, f, size, x, y+float64(lines)*size*1.3, c, render.Left)
-			lines++
+	for i, line := range wrapText(s, f, size, w) {
+		if i == 3 {
+			break
 		}
-		line = ""
+		render.Text(dst, line, f, size, x, y+float64(i)*size*1.3, c, render.Left)
 	}
-	for _, wd := range words {
+}
+
+// wrapText splits s into lines no wider than w, breaking between words (a
+// single word wider than w gets a line of its own).
+func wrapText(s string, f render.Font, size, w float64) []string {
+	var out []string
+	line := ""
+	for _, wd := range strings.Fields(s) {
 		try := wd
 		if line != "" {
 			try = line + " " + wd
 		}
 		if tw, _ := render.Measure(try, f, size); tw > w && line != "" {
-			flush()
+			out = append(out, line)
 			line = wd
 		} else {
 			line = try
 		}
 	}
-	flush()
+	if line != "" {
+		out = append(out, line)
+	}
+	return out
 }

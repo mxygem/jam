@@ -46,8 +46,11 @@ type Settings struct {
 	BackgroundDim   float64 `json:"background_dim"`   // 0..1 darkening over the image
 	BackgroundMenus bool    `json:"background_menus"` // show the image behind menus too
 	Browse          Browse  `json:"browse"`
-	Look            Look    `json:"look"`
-	Multi           Multi   `json:"multiplayer"`
+	// LargeCharts draws the results screen's charts across the whole
+	// window instead of in the panel under the tabs.
+	LargeCharts bool  `json:"large_charts"`
+	Look        Look  `json:"look"`
+	Multi       Multi `json:"multiplayer"`
 
 	// ActiveProfile is the id of the profile using the menus. Its player
 	// settings are the ones in this file (see PlayerSettings).

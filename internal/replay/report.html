@@ -53,6 +53,8 @@
 html, body { margin: 0; background: var(--page); color: var(--ink); }
 body { font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 24px 16px 64px; }
 main { max-width: 1320px; margin: 0 auto; }
+body.wide main { max-width: none; }
+.btns { display: flex; gap: 8px; }
 header.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
 h1 { font-size: 30px; line-height: 1.15; margin: 0; letter-spacing: -0.01em; }
 .sub { color: var(--muted); margin-top: 4px; }
@@ -106,7 +108,10 @@ tr.dim td { color: var(--muted); }
       <h1 id="title"></h1>
       <div class="sub" id="subtitle"></div>
     </div>
-    <button class="themebtn" id="theme" type="button">Light / dark</button>
+    <div class="btns">
+      <button class="themebtn" id="wide" type="button" aria-pressed="false">Wide view</button>
+      <button class="themebtn" id="theme" type="button">Light / dark</button>
+    </div>
   </header>
   <div class="stats" id="stats"></div>
   <ul class="tips" id="tips"></ul>
@@ -669,9 +674,22 @@ function all() {
   redrawers.length = 0;
   header(); scatter(); runStrip(); fretHeat(); reportCard(); history();
 }
+try { setWide(localStorage.getItem('jam-report-wide') === '1'); } catch (e) { setWide(false); }
 all();
 let rt;
 addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { scatter(); runStrip(); redrawers.forEach(f => f()); }, 150); });
+// Wide view: charts use the whole browser width. Remembered per browser.
+function setWide(on) {
+  document.body.classList.toggle('wide', on);
+  $('wide').textContent = on ? 'Normal width' : 'Wide view';
+  $('wide').setAttribute('aria-pressed', on ? 'true' : 'false');
+}
+$('wide').addEventListener('click', () => {
+  const on = !document.body.classList.contains('wide');
+  setWide(on);
+  try { localStorage.setItem('jam-report-wide', on ? '1' : '0'); } catch (e) {}
+  scatter(); runStrip(); redrawers.forEach(f => f());
+});
 $('theme').addEventListener('click', () => {
   const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
   document.documentElement.dataset.theme = cur === 'light' ? 'dark' : 'light';

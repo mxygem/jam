@@ -293,6 +293,14 @@ func newSettingsMenu(a *App, inSong bool) *settingsMenu {
 				ebiten.SetFullscreen(st.Fullscreen)
 			}},
 		{Label: "VSync", Value: func() string { return onOff(st.VSync) }, Adjust: func(int) { st.VSync = !st.VSync; ebiten.SetVsyncEnabled(st.VSync) }},
+		{Label: "Results charts", Hint: "Large draws the run and history charts across the whole window. F on the results screen also switches.",
+			Value: func() string {
+				if st.LargeCharts {
+					return "Large"
+				}
+				return "Normal"
+			},
+			Adjust: func(int) { st.LargeCharts = !st.LargeCharts }},
 	}
 	if !inSong {
 		system = append(system,
@@ -315,9 +323,9 @@ func newSettingsMenu(a *App, inSong bool) *settingsMenu {
 		m.pages = append(m.pages, settingsPage{pageControls, "Controls", "Set up a guitar or drum kit", controls})
 	}
 	title := "Display and library"
-	hint := "Fullscreen, VSync, song folders"
+	hint := "Fullscreen, VSync, results charts, song folders"
 	if inSong {
-		title, hint = "Display", "Fullscreen, VSync"
+		title, hint = "Display", "Fullscreen, VSync, results charts"
 	}
 	m.pages = append(m.pages, settingsPage{pageLibrary, title, hint, system})
 
