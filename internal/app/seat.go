@@ -320,6 +320,7 @@ func (s *seat) draw(dst *ebiten.Image, a *App, p *BandPlay, sl slot, rn float64,
 		info.OverlaySub = "Get ready!"
 	}
 	if s.joining == nil {
+		s.hud.Layout = a.Settings.SeatHUD
 		s.hud.Draw(v, hc, &s.hs, &info)
 	}
 	if s.joining != nil {

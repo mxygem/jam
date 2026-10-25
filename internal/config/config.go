@@ -48,9 +48,12 @@ type Settings struct {
 	Browse          Browse  `json:"browse"`
 	// LargeCharts draws the results screen's charts across the whole
 	// window instead of in the panel under the tabs.
-	LargeCharts bool  `json:"large_charts"`
-	Look        Look  `json:"look"`
-	Multi       Multi `json:"multiplayer"`
+	LargeCharts bool `json:"large_charts"`
+	// SeatHUD is where the multiplayer scoreboard's items sit (the HUD
+	// layout editor writes it).
+	SeatHUD render.HUDLayout `json:"seat_hud,omitempty"`
+	Look    Look             `json:"look"`
+	Multi   Multi            `json:"multiplayer"`
 
 	// ActiveProfile is the id of the profile using the menus. Its player
 	// settings are the ones in this file (see PlayerSettings).

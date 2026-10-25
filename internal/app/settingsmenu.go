@@ -309,6 +309,8 @@ func newSettingsMenu(a *App, inSong bool) *settingsMenu {
 				m.typing.Placeholder = `C:\Users\you\Songs`
 			}},
 			Item{Label: "Rescan library", Activate: func() { a.RescanLibrary(); a.Toast("Rescanning library...") }},
+			Item{Label: "Multiplayer HUD layout...", Hint: "Drag the name, score, multiplier, streak, star power and rock meter where you want them on every highway",
+				Activate: func() { a.SetScene(NewHUDLayoutEditor(a, func() { a.SetScene(NewSettingsAt(a, pageLibrary)) })) }},
 		)
 	}
 

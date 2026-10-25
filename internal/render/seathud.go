@@ -44,9 +44,24 @@ func SeatHighway(base HighwayConfig, vw float64) HighwayConfig {
 }
 
 // SeatHUD draws one player's scoreboard around their highway: name and score
-// above, multiplier, streak, star power and rock meter below the strike line.
+// above, multiplier and streak below the strike line, star power beside the
+// highway, rock meter at the bottom. Layout moves, hides and turns items.
 type SeatHUD struct {
 	batch Batch
+	// Layout places the items (nil: all at their defaults).
+	Layout HUDLayout
+	// ShowHidden draws hidden items too (the layout editor shows them
+	// faded so they can be brought back).
+	ShowHidden bool
+	// Boxes is where each item was drawn last frame, for the editor.
+	Boxes map[string]Box
+}
+
+// railX returns the x of the highway's right edge at screen y.
+func railX(hc HighwayConfig, y float64) float64 {
+	r := hc.FarRatio
+	hz := (hc.TopY - hc.StrikeY*r) / (1 - r)
+	return hc.CenterX + hc.NearWidth/2*(y-hz)/(hc.StrikeY-hz)
 }
 
 // Draw draws the HUD for a highway shaped hc.
@@ -56,6 +71,17 @@ func (u *SeatHUD) Draw(dst *ebiten.Image, hc HighwayConfig, s *HUDState, in *Sea
 	cx, nw := hc.CenterX, hc.NearWidth
 	k := math.Min(1.25, math.Max(0.45, nw/440))
 	left, right := cx-nw/2, cx+nw/2
+	if u.Boxes == nil {
+		u.Boxes = map[string]Box{}
+	}
+	for id := range u.Boxes {
+		delete(u.Boxes, id)
+	}
+	// item returns whether to draw an item and its offset.
+	item := func(id string) (bool, float64, float64) {
+		p := u.Layout.Get(id)
+		return !p.Hidden || u.ShowHidden, p.DX * nw, p.DY * SeatH
+	}
 
 	// --- overlay (out, failed, sitting out) under the HUD ---
 	if in.Overlay != "" {
@@ -68,61 +94,88 @@ func (u *SeatHUD) Draw(dst *ebiten.Image, hc HighwayConfig, s *HUDState, in *Sea
 		}
 	}
 
-	// --- name tag and score (top) ---
+	// --- name tag (top left) ---
 	ty := 18.0
-	b.Ellipse(dst, left+14*k, ty+24*k, 11*k, 11*k, in.Color, in.Color)
-	b.Flush(dst)
-	name := []rune(in.Name)
-	nameW := nw * 0.55
-	for len(name) > 1 {
-		if w, _ := Measure(string(name), CondBold, 38*k); w <= nameW {
-			break
+	if ok, dx, dy := item(HUDName); ok {
+		x, y := left+dx, ty+dy
+		b.Ellipse(dst, x+14*k, y+24*k, 11*k, 11*k, in.Color, in.Color)
+		b.Flush(dst)
+		name := []rune(in.Name)
+		nameW := nw * 0.55
+		for len(name) > 1 {
+			if w, _ := Measure(string(name), CondBold, 38*k); w <= nameW {
+				break
+			}
+			name = name[:len(name)-1]
 		}
-		name = name[:len(name)-1]
+		TextShadow(dst, string(name), CondBold, 38*k, x+32*k, y, th.Text, Left)
+		Text(dst, in.Part, Cond, 24*k, x+32*k, y+46*k, th.TextDim, Left)
+		w1, _ := Measure(string(name), CondBold, 38*k)
+		w2, _ := Measure(in.Part, Cond, 24*k)
+		// the player's color line runs under the name across the highway
+		FillRect(dst, left+dx, y+92*k, nw, 4*k, WithAlpha(in.Color, 0.85))
+		u.Boxes[HUDName] = Box{x, y, 32*k + math.Max(w1, w2), 76 * k}
 	}
-	TextShadow(dst, string(name), CondBold, 38*k, left+32*k, ty, th.Text, Left)
-	Text(dst, in.Part, Cond, 24*k, left+32*k, ty+46*k, th.TextDim, Left)
-	TextShadow(dst, fmt.Sprintf("%d", int64(s.Score+0.5)), Display, 50*k, right, ty-4, th.Text, Right)
-	if in.Rank > 0 {
-		c := th.TextDim
-		if in.Rank == 1 {
-			c = color.RGBA{0xFF, 0xD0, 0x1F, 0xFF}
+
+	// --- score (top right) ---
+	if ok, dx, dy := item(HUDScore); ok {
+		x, y := right+dx, ty+dy
+		score := fmt.Sprintf("%d", int64(s.Score+0.5))
+		TextShadow(dst, score, Display, 50*k, x, y-4, th.Text, Right)
+		w, _ := Measure(score, Display, 50*k)
+		h := 60 * k
+		if in.Rank > 0 {
+			c := th.TextDim
+			if in.Rank == 1 {
+				c = color.RGBA{0xFF, 0xD0, 0x1F, 0xFF}
+			}
+			Text(dst, ordinalText(in.Rank), CondBold, 28*k, x, y+52*k, c, Right)
+			h = 86 * k
 		}
-		Text(dst, ordinalText(in.Rank), CondBold, 28*k, right, ty+52*k, c, Right)
+		u.Boxes[HUDScore] = Box{x - w, y - 4, w, h}
 	}
-	FillRect(dst, left, ty+92*k, nw, 4*k, WithAlpha(in.Color, 0.85))
 
 	// --- under the strike line ---
 	y0 := hc.StrikeY + 30
 	// multiplier ring (left)
-	mr := math.Min(42*k, (SeatH-y0)/2-8)
-	mx, my := left+50*k, y0+mr+4
-	base := s.Mult
-	if s.SPActive {
-		base /= 2
-	}
-	mc := multColor(base, s.SPActive)
-	b.Ellipse(dst, mx, my, mr+4*k, mr+4*k, WithAlpha(th.Panel, 0.95), WithAlpha(th.Panel, 0.95))
-	segs := 10
-	filled := s.Streak % 10
-	if base >= s.BaseMax {
-		filled = segs
-	}
-	for i := 0; i < segs; i++ {
-		a0 := -math.Pi/2 + float64(i)*2*math.Pi/float64(segs) + 0.06
-		a1 := a0 + 2*math.Pi/float64(segs) - 0.12
-		c := WithAlpha(th.TextDim, 0.25)
-		if i < filled {
-			c = mc
+	if ok, dx, dy := item(HUDMult); ok {
+		mr := math.Min(42*k, (SeatH-y0)/2-8)
+		mx, my := left+50*k+dx, y0+mr+4+dy
+		base := s.Mult
+		if s.SPActive {
+			base /= 2
 		}
-		b.Arc(dst, mx, my, mr, 8*k, a0, a1, c)
+		mc := multColor(base, s.SPActive)
+		b.Ellipse(dst, mx, my, mr+4*k, mr+4*k, WithAlpha(th.Panel, 0.95), WithAlpha(th.Panel, 0.95))
+		segs := 10
+		filled := s.Streak % 10
+		if base >= s.BaseMax {
+			filled = segs
+		}
+		for i := 0; i < segs; i++ {
+			a0 := -math.Pi/2 + float64(i)*2*math.Pi/float64(segs) + 0.06
+			a1 := a0 + 2*math.Pi/float64(segs) - 0.12
+			c := WithAlpha(th.TextDim, 0.25)
+			if i < filled {
+				c = mc
+			}
+			b.Arc(dst, mx, my, mr, 8*k, a0, a1, c)
+		}
+		b.Flush(dst)
+		Text(dst, fmt.Sprintf("x%d", s.Mult), Display, 40*k*mr/(42*k), mx, my-25*k*mr/(42*k), mc, Center)
+		r := mr + 4*k
+		u.Boxes[HUDMult] = Box{mx - r, my - r, 2 * r, 2 * r}
 	}
-	b.Flush(dst)
-	Text(dst, fmt.Sprintf("x%d", s.Mult), Display, 40*k*mr/(42*k), mx, my-25*k*mr/(42*k), mc, Center)
 
-	// streak and timing (middle)
-	Text(dst, fmt.Sprintf("%d", s.Streak), CondBold, 40*k, cx, y0+2*k, th.Text, Center)
-	Text(dst, "STREAK", Cond, 18*k, cx, y0+50*k, th.TextDim, Center)
+	// streak (middle)
+	if ok, dx, dy := item(HUDStreak); ok {
+		x, y := cx+dx, y0+dy
+		Text(dst, fmt.Sprintf("%d", s.Streak), CondBold, 40*k, x, y+2*k, th.Text, Center)
+		Text(dst, "STREAK", Cond, 18*k, x, y+50*k, th.TextDim, Center)
+		w := 90 * k
+		u.Boxes[HUDStreak] = Box{x - w/2, y, w, 72 * k}
+	}
+	// timing of the last hit, just over the strike line
 	if s.ShowTiming {
 		dt := s.Now - s.LastHitAt
 		if dt >= 0 && dt < 0.45 {
@@ -138,45 +191,27 @@ func (u *SeatHUD) Draw(dst *ebiten.Image, hc HighwayConfig, s *HUDState, in *Sea
 		}
 	}
 
-	// star power (right)
-	sw := 132 * k
-	sx, sy := right-sw, y0+24*k
-	ready := s.SPEnergy >= 0.5 && !s.SPActive
-	pulse := 0.0
-	if ready || s.SPActive {
-		pulse = 0.5 + 0.5*math.Sin(s.Now*8)
+	// star power
+	if ok, dx, dy := item(HUDStarPower); ok {
+		u.Boxes[HUDStarPower] = u.drawStarPower(dst, hc, s, k, dx, dy)
 	}
-	for q := 0; q < 4; q++ {
-		x := sx + float64(q)*(sw/4)
-		fill := math.Max(0, math.Min(1, s.SPEnergy*4-float64(q)))
-		b.Rect(dst, x, sy, sw/4-5*k, 14*k, WithAlpha(th.StarPower, 0.28), WithAlpha(th.StarPower, 0.18))
-		if fill > 0 {
-			c := Lighten(th.StarPower, pulse*0.5)
-			b.Rect(dst, x, sy, (sw/4-5*k)*fill, 14*k, c, Darken(c, 0.2))
-		}
-	}
-	b.Flush(dst)
-	label := "STAR POWER"
-	switch {
-	case s.SPActive:
-		label = "ACTIVE"
-	case ready:
-		label = "READY"
-	}
-	Text(dst, label, Cond, 18*k, right, sy+20*k, WithAlpha(th.StarPower, 0.6+0.4*pulse), Right)
 
 	// rock meter (bottom edge)
 	if in.ShowRock {
-		ry := SeatH - 16*k
-		c := th.Good
-		switch {
-		case s.Rock < 0.33:
-			c = th.Bad
-		case s.Rock < 0.66:
-			c = color.RGBA{0xFF, 0xD0, 0x1F, 0xFF}
+		if ok, dx, dy := item(HUDRock); ok {
+			ry := SeatH - 16*k + dy
+			x := left + dx
+			c := th.Good
+			switch {
+			case s.Rock < 0.33:
+				c = th.Bad
+			case s.Rock < 0.66:
+				c = color.RGBA{0xFF, 0xD0, 0x1F, 0xFF}
+			}
+			FillRect(dst, x, ry, nw, 8*k, WithAlpha(th.TextDim, 0.25))
+			FillRect(dst, x, ry, nw*math.Max(0, math.Min(1, s.Rock)), 8*k, c)
+			u.Boxes[HUDRock] = Box{x, ry - 4*k, nw, 16 * k}
 		}
-		FillRect(dst, left, ry, nw, 8*k, WithAlpha(th.TextDim, 0.25))
-		FillRect(dst, left, ry, nw*math.Max(0, math.Min(1, s.Rock)), 8*k, c)
 	}
 
 	// --- banner ---
@@ -193,21 +228,97 @@ func (u *SeatHUD) Draw(dst *ebiten.Image, hc HighwayConfig, s *HUDState, in *Sea
 	}
 
 	// --- messages over the highway ---
-	y := hc.TopY + (hc.StrikeY-hc.TopY)*0.22
-	for _, m := range s.Messages {
-		dt := s.Now - m.At
-		if dt < 0 || dt > 1.6 {
-			continue
+	if ok, dx, dy := item(HUDMessages); ok {
+		x := cx + dx
+		y := hc.TopY + (hc.StrikeY-hc.TopY)*0.22 + dy
+		box := Box{x - nw*0.4, y, nw * 0.8, 58 * k}
+		for _, m := range s.Messages {
+			dt := s.Now - m.At
+			if dt < 0 || dt > 1.6 {
+				continue
+			}
+			a := math.Min(1, math.Min(dt/0.12, (1.6-dt)/0.4))
+			sc := 1 + 0.15*math.Max(0, 0.15-dt)/0.15
+			size := 50 * k * sc
+			if w, _ := Measure(m.Text, Display, size); w > nw*1.1 {
+				size *= nw * 1.1 / w
+			}
+			TextShadow(dst, m.Text, Display, size, x, y, WithAlpha(m.Color, a), Center)
+			w, _ := Measure(m.Text, Display, size)
+			box = box.union(Box{x - w/2, y, w, size * 1.15})
+			y += size * 1.15
 		}
-		a := math.Min(1, math.Min(dt/0.12, (1.6-dt)/0.4))
-		sc := 1 + 0.15*math.Max(0, 0.15-dt)/0.15
-		size := 50 * k * sc
-		if w, _ := Measure(m.Text, Display, size); w > nw*1.1 {
-			size *= nw * 1.1 / w
-		}
-		TextShadow(dst, m.Text, Display, size, cx, y, WithAlpha(m.Color, a), Center)
-		y += size * 1.15
+		u.Boxes[HUDMessages] = box
 	}
+}
+
+// drawStarPower draws the star power meter: by default a column of four
+// segments beside the highway, level with the messages; on its side, a
+// row under the strike line on the right.
+func (u *SeatHUD) drawStarPower(dst *ebiten.Image, hc HighwayConfig, s *HUDState, k, dx, dy float64) Box {
+	th := &DefaultTheme
+	b := &u.batch
+	ready := s.SPEnergy >= 0.5 && !s.SPActive
+	pulse := 0.0
+	if ready || s.SPActive {
+		pulse = 0.5 + 0.5*math.Sin(s.Now*8)
+	}
+	label := "STAR POWER"
+	switch {
+	case s.SPActive:
+		label = "ACTIVE"
+	case ready:
+		label = "READY"
+	}
+	labelC := WithAlpha(th.StarPower, 0.6+0.4*pulse)
+	fillC := Lighten(th.StarPower, pulse*0.5)
+	seg := func(q int) float64 { return math.Max(0, math.Min(1, s.SPEnergy*4-float64(q))) }
+
+	if u.Layout.Get(HUDStarPower).Horizontal {
+		sw := 132 * k
+		sx, sy := hc.CenterX+hc.NearWidth/2-sw+dx, hc.StrikeY+30+24*k+dy
+		for q := 0; q < 4; q++ {
+			x := sx + float64(q)*(sw/4)
+			b.Rect(dst, x, sy, sw/4-5*k, 14*k, WithAlpha(th.StarPower, 0.28), WithAlpha(th.StarPower, 0.18))
+			if f := seg(q); f > 0 {
+				b.Rect(dst, x, sy, (sw/4-5*k)*f, 14*k, fillC, Darken(fillC, 0.2))
+			}
+		}
+		b.Flush(dst)
+		Text(dst, label, Cond, 18*k, sx+sw, sy+20*k, labelC, Right)
+		return Box{sx, sy, sw, 42 * k}
+	}
+
+	// Column: centered at the height of the messages, just right of the
+	// rail there, filling from the bottom up.
+	span := hc.StrikeY - hc.TopY
+	sh := math.Min(230*k, span*0.3)
+	cy := hc.TopY + span*0.3
+	sw := 16 * k
+	sx := railX(hc, cy) + 24*k + dx
+	sy := cy - sh/2 + dy
+	gap := 5 * k
+	qh := (sh - 3*gap) / 4
+	for q := 0; q < 4; q++ {
+		y := sy + sh - float64(q+1)*qh - float64(q)*gap
+		b.Rect(dst, sx, y, sw, qh, WithAlpha(th.StarPower, 0.28), WithAlpha(th.StarPower, 0.18))
+		if f := seg(q); f > 0 {
+			b.Rect(dst, sx, y+qh*(1-f), sw, qh*f, fillC, Darken(fillC, 0.2))
+		}
+	}
+	b.Flush(dst)
+	for q := 0; q < 4; q++ {
+		y := sy + sh - float64(q+1)*qh - float64(q)*gap
+		StrokeRect(dst, sx, y, sw, qh, math.Max(1, 1.5*k), WithAlpha(th.StarPower, 0.55))
+	}
+	short := "SP"
+	if label != "STAR POWER" {
+		short = label
+	}
+	Text(dst, short, CondBold, 18*k, sx+sw/2, sy+sh+6*k, labelC, Center)
+	lw, _ := Measure(short, CondBold, 18*k)
+	w := math.Max(sw, lw)
+	return Box{sx + sw/2 - w/2, sy, w, sh + 30*k}
 }
 
 func ordinalText(n int) string {

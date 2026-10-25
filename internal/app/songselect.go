@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"math"
+	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -58,6 +59,7 @@ type SongSelect struct {
 	lastSel  *chart.Song
 	want     string // song to select once the library has loaded
 	shotWait int
+	recent   []string // songs random picked lately, newest last
 }
 
 // NewSongSelect builds the song list.
@@ -292,6 +294,8 @@ func (s *SongSelect) Update(a *App) error {
 	case inpututil.IsKeyJustPressed(ebiten.KeyF6):
 		a.SetScene(NewPlaylistScene(a))
 		return nil
+	case inpututil.IsKeyJustPressed(ebiten.KeyF7):
+		s.random()
 	case inpututil.IsKeyJustPressed(ebiten.KeyHome):
 		s.sel = 0
 		s.top = 0
@@ -453,6 +457,8 @@ func (s *SongSelect) openOptions(a *App) {
 		return "Normal"
 	}
 	items := []Item{
+		{Label: "Random song", Hint: "Jumps to a random song from the list as it is filtered and searched (also F7)",
+			Activate: func() { s.random(); s.ov = ovNone }},
 		{Label: "Sort by", Value: func() string { return sortLabel(b.Sort) }, Adjust: func(d int) { s.cycleSort(a, d) }},
 		{Label: "Order", Value: order, Adjust: func(int) { b.Desc = !b.Desc; s.refresh(a) }},
 		{Label: "Filters", Value: func() string { return filterSummary(b.Filter) }, Activate: func() { s.openFilter(a) }},
@@ -472,6 +478,44 @@ func (s *SongSelect) openOptions(a *App) {
 	)
 	s.menu = List{Visible: 9, Items: items}
 	s.ov = ovOptions
+}
+
+// random selects a random song from the rows as they are (filters and
+// search applied): not the current one, and not one of the last 20
+// random picks while anything else is left.
+func (s *SongSelect) random() bool {
+	var pool, fresh []int
+	cur := s.current()
+	recent := map[string]bool{}
+	for _, d := range s.recent {
+		recent[d] = true
+	}
+	for i, r := range s.rows {
+		if r.song == nil || r.song == cur {
+			continue
+		}
+		pool = append(pool, i)
+		if !recent[r.song.Dir] {
+			fresh = append(fresh, i)
+		}
+	}
+	if len(fresh) > 0 {
+		pool = fresh
+	}
+	if len(pool) == 0 {
+		return false
+	}
+	s.sel = pool[rand.IntN(len(pool))]
+	s.top = s.sel
+	for s.top > 0 && s.rows[s.top-1].header != "" {
+		s.top--
+	}
+	s.scrollTo()
+	s.recent = append(s.recent, s.rows[s.sel].song.Dir)
+	if n := len(s.recent); n > 20 {
+		s.recent = s.recent[n-20:]
+	}
+	return true
 }
 
 func queueLabel(a *App) string {
@@ -617,7 +661,7 @@ func (s *SongSelect) Draw(dst *ebiten.Image, a *App) {
 	case ovFilter:
 		s.filter.draw(dst, a)
 	}
-	Footer(dst, "Type to search   Enter / green choose   Tab / yellow options   F2 sort   F3 filter   F4 difficulty scale   F6 playlist   Esc / red back")
+	Footer(dst, "Type to search   Enter / green choose   Tab / yellow options   F2 sort   F3 filter   F4 difficulty scale   F6 playlist   F7 random   Esc / red back")
 }
 
 func (s *SongSelect) subtitle(a *App) string {

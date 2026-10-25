@@ -11,6 +11,7 @@ type Mouse struct {
 	Moved    bool    // moved since last frame
 	Wheel    float64 // wheel notches, positive = up
 	Click    bool    // left button pressed this frame
+	Down     bool    // left button held
 	Right    bool    // right button pressed this frame
 	Double   bool    // second click within 0.35 s near the first
 	lastX    float64
@@ -28,6 +29,7 @@ func (m *Mouse) update(ox, oy float64) {
 	_, wy := ebiten.Wheel()
 	m.Wheel = wy
 	m.Click = inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft)
+	m.Down = ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
 	m.Right = inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight)
 	m.Double = false
 	if m.Click {
