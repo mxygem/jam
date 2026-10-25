@@ -5,12 +5,15 @@ import (
 	"log"
 	"math"
 	"sort"
+	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/audio"
 
 	"github.com/mxygem/jam/internal/action"
+	"github.com/mxygem/jam/internal/chart"
 	"github.com/mxygem/jam/internal/clock"
+	"github.com/mxygem/jam/internal/engine"
 	"github.com/mxygem/jam/internal/input"
 	"github.com/mxygem/jam/internal/playback"
 	"github.com/mxygem/jam/internal/render"
@@ -43,6 +46,9 @@ type Calibration struct {
 	result  float64
 	spread  float64
 	done    List
+
+	// Video calibration plays a tiny chart on the real highway.
+	vis *calVisual
 }
 
 // NewCalibration opens the calibration screen.
@@ -76,6 +82,10 @@ func (c *Calibration) begin(a *App, m calMode) {
 		c.player.Play()
 	}
 	c.start = clock.Now()
+	c.vis = nil
+	if m == calVideo {
+		c.vis = newCalVisual(a)
+	}
 }
 
 // beatTime returns the clock time of measured beat k.
@@ -106,6 +116,9 @@ func (c *Calibration) Update(a *App) error {
 			off := e.Time - c.beatTime(k)
 			if math.Abs(off) < 0.22 {
 				c.offsets = append(c.offsets, off*1000)
+			}
+			if c.vis != nil {
+				c.vis.tap(k, e.Time-c.start, math.Abs(off) < 0.22)
 			}
 		}
 		if clock.Now() > c.beatTime(calBeats-1)+0.6 {
@@ -182,12 +195,11 @@ func (c *Calibration) Draw(dst *ebiten.Image, a *App) {
 	case calAudio, calVideo:
 		now := clock.Now()
 		rel := (now - c.beatTime(0)) / calInterval
-		if c.mode == calAudio {
-			render.Text(dst, "Strum on every click", render.Display, 72, render.ScreenW/2, 340, th.Text, render.Center)
-		} else {
-			render.Text(dst, "Strum as each gem crosses the line", render.Display, 64, render.ScreenW/2, 240, th.Text, render.Center)
-			c.drawVisual(dst, now)
+		if c.mode == calVideo && c.vis != nil {
+			c.drawVideo(dst, now, rel)
+			break
 		}
+		render.Text(dst, "Strum on every click", render.Display, 72, render.ScreenW/2, 340, th.Text, render.Center)
 		if rel < 0 {
 			render.Text(dst, fmt.Sprintf("starting in %d", int(math.Ceil(-rel*calInterval))), render.UI, 34, render.ScreenW/2, 460, th.TextDim, render.Center)
 		} else {
@@ -209,23 +221,133 @@ func (c *Calibration) Draw(dst *ebiten.Image, a *App) {
 	}
 }
 
-func (c *Calibration) drawVisual(dst *ebiten.Image, now float64) {
-	lineY := 760.0
-	var b render.Batch
-	b.Rect(dst, 760, 320, 400, 560, render.WithAlpha(th.Highway, 0.9), render.WithAlpha(th.Highway, 0.9))
-	b.Rect(dst, 740, lineY-3, 440, 6, th.Rail, th.Rail)
-	for k := 0; k < calBeats; k++ {
-		dt := c.beatTime(k) - now
-		if dt < -0.3 || dt > 1.0 {
-			continue
-		}
-		y := lineY - dt*440
-		a := 1.0
-		if dt < 0 {
-			a = math.Max(0, 1+dt/0.3)
-		}
-		col := th.Lanes[k%5]
-		b.Ellipse(dst, 960, y, 70, 38, render.WithAlpha(render.Lighten(col, 0.3), a), render.WithAlpha(col, a))
+// drawVideo draws the video calibration the way a song looks: the
+// background, the player's highway and look, gems coming down to the
+// strike line. Instructions and the count sit left of the highway. The
+// current video offset is not applied, so the measurement is raw.
+func (c *Calibration) drawVideo(dst *ebiten.Image, now, rel float64) {
+	t := now - c.start // chart time; beat k crosses the line at calLead + k*calInterval
+	render.Background(dst, t, false)
+	c.vis.draw(dst, t)
+
+	x := 120.0
+	render.Text(dst, "Video latency", render.Display, 56, x, 150, th.Text, render.Left)
+	render.Text(dst, "Strum as each gem", render.UI, 32, x, 240, th.TextDim, render.Left)
+	render.Text(dst, "crosses the line.", render.UI, 32, x, 282, th.TextDim, render.Left)
+	render.Text(dst, "Go by what you see,", render.UI, 28, x, 352, th.TextDim, render.Left)
+	render.Text(dst, "not by sound.", render.UI, 28, x, 390, th.TextDim, render.Left)
+	if rel < 0 {
+		render.Text(dst, fmt.Sprintf("starting in %d", int(math.Ceil(-rel*calInterval))), render.UIBold, 40, x, 500, th.Text, render.Left)
+	} else {
+		render.Text(dst, fmt.Sprintf("%d / %d", min(calBeats, int(rel)+1), calBeats), render.UIBold, 40, x, 500, th.Text, render.Left)
 	}
-	b.Flush(dst)
+	if n := len(c.offsets); n > 0 {
+		render.Text(dst, fmt.Sprintf("last %+.0f ms", c.offsets[n-1]), render.Cond, 32, x, 560, th.TextDim, render.Left)
+	}
+	Footer(dst, "Esc cancel")
 }
+
+// calVisual is the video calibration's chart: one guitar gem per measured
+// beat, walking up and down the frets, drawn by the game's own highway
+// with the player's look. A tap clears the gem it was aimed at and flames
+// the strike line like a hit in a song, but nothing is judged: late gems
+// scroll past without turning into misses, so no red flashes pull the
+// player's timing.
+type calVisual struct {
+	t     *chart.Track
+	eng   *calEngine
+	hw    render.Highway
+	frame render.FrameState
+}
+
+// calLanes is the fret each measured beat lands on, in turn.
+var calLanes = [...]int{0, 1, 2, 3, 4, 3, 2, 1}
+
+// calChartText writes the calibration chart: 120 BPM, so one beat (192
+// ticks) is calInterval, with the first gem after calLead.
+func calChartText() string {
+	const res = 192
+	lead := int(math.Round(calLead / calInterval * res))
+	var b strings.Builder
+	b.WriteString("[Song]\n{\n  Resolution = 192\n  Offset = 0\n}\n")
+	b.WriteString("[SyncTrack]\n{\n  0 = TS 4\n  0 = B 120000\n}\n[Events]\n{\n}\n[ExpertSingle]\n{\n")
+	for k := 0; k < calBeats; k++ {
+		fmt.Fprintf(&b, "  %d = N %d 0\n", lead+k*res, calLanes[k%len(calLanes)])
+	}
+	b.WriteString("}\n")
+	return b.String()
+}
+
+func newCalVisual(a *App) *calVisual {
+	c, err := chart.ParseDotChart(strings.NewReader(calChartText()), &chart.SongIni{})
+	if err != nil {
+		panic("calibration chart: " + err.Error())
+	}
+	v := &calVisual{t: c.Track(chart.Guitar, chart.Expert)}
+	set := engine.DefaultSettings()
+	set.NoFail = true
+	v.eng = &calEngine{Engine: engine.New(c, v.t, set), hit: make([]bool, len(v.t.Notes))}
+	hc := a.Settings.Highway
+	if hc.NearWidth == 0 {
+		hc = render.DefaultHighway()
+	}
+	v.hw.Cfg = hc
+	v.frame = render.FrameState{Chart: c, Track: v.t, Eng: v.eng,
+		Fx: render.ParseFxLevel(a.Settings.HitFx), Bounce: a.Settings.HighwayBounce}
+	for i := range v.frame.Flash {
+		v.frame.Flash[i] = -100
+		v.frame.PadHit[i] = -100
+	}
+	v.frame.MissFlash = -100
+	return v
+}
+
+// tap shows a tap at chart time t aimed at beat k. Only taps close enough
+// to count clear the gem.
+func (v *calVisual) tap(k int, t float64, counted bool) {
+	if k < 0 || k >= len(v.eng.hit) {
+		return
+	}
+	lane := calLanes[k%len(calLanes)]
+	v.frame.Flash[lane] = t
+	if counted && !v.eng.hit[k] {
+		v.eng.hit[k] = true
+		v.frame.Hits = append(v.frame.Hits, render.HitFx{At: t, Lane: lane})
+	}
+}
+
+func (v *calVisual) draw(dst *ebiten.Image, t float64) {
+	f := &v.frame
+	f.Now = t
+	keep := f.Hits[:0]
+	for _, h := range f.Hits {
+		if t-h.At < render.FxLife {
+			keep = append(keep, h)
+		}
+	}
+	f.Hits = keep
+	v.hw.Draw(dst, f)
+}
+
+// calEngine shows tapped gems as hit and every other gem as still to
+// play.
+type calEngine struct {
+	engine.Engine
+	hit []bool
+}
+
+func (e *calEngine) Status(i int) engine.NoteStatus {
+	if i >= 0 && i < len(e.hit) && e.hit[i] {
+		return engine.NoteHit
+	}
+	return engine.Pending
+}
+
+func (e *calEngine) LaneHit(i int) uint8 {
+	if e.Status(i) == engine.NoteHit {
+		return e.Track().Notes[i].Lanes
+	}
+	return 0
+}
+
+func (e *calEngine) SPAlive(int) bool { return false }

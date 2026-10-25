@@ -3,6 +3,8 @@ package app
 import (
 	"math"
 	"testing"
+
+	"github.com/mxygem/jam/internal/engine"
 )
 
 // Tapping a steady 45 ms behind the clicks measures 45 ms, ignores a stray
@@ -62,5 +64,58 @@ func TestVideoCalibrationCancel(t *testing.T) {
 	h.frame(keyDown(keyEscape))
 	if c.mode != calMenu {
 		t.Fatalf("Esc should cancel back to the menu, mode %v", c.mode)
+	}
+}
+
+// Video calibration plays gems down the real highway: tapped gems clear,
+// untapped ones scroll past without being judged, and the taps still
+// measure the offset. With JAM_SHOTS it saves the screen mid-run.
+func TestVideoCalibrationHighway(t *testing.T) {
+	h := newHarness(t)
+	c := NewCalibration(h.a)
+	h.a.scene = c
+	h.frame(xbtn(bitDPadDown, true)) // strum down to "Video latency"
+	h.frame(xbtn(bitDPadDown, false))
+	h.tap(bitA)
+	if c.mode != calVideo || c.vis == nil {
+		t.Fatalf("mode %v, visual %v", c.mode, c.vis != nil)
+	}
+	if n := len(c.vis.t.Notes); n != calBeats {
+		t.Fatalf("calibration chart has %d gems, want %d", n, calBeats)
+	}
+	for i, n := range c.vis.t.Notes {
+		if want := calLead + float64(i)*calInterval; math.Abs(n.Time-want) > 1e-6 {
+			t.Fatalf("gem %d at %.4f s, want %.4f", i, n.Time, want)
+		}
+	}
+	for k := 0; k < calBeats; k++ {
+		at := c.beatTime(k) + 0.030
+		for h.now < at {
+			h.frame()
+		}
+		if k == 5 { // skip one gem: it must stay pending, not missed
+			continue
+		}
+		ev := xbtn(bitDPadDown, true)
+		ev.Time = at
+		h.frame(ev)
+		if k == 7 {
+			h.idle(0.02)
+			h.shot("calibrate-video")
+		}
+		h.idle(0.05)
+		h.frame(xbtn(bitDPadDown, false))
+		if k == 7 {
+			if c.vis.eng.Status(4) != engine.NoteHit || c.vis.eng.Status(5) != engine.Pending {
+				t.Fatalf("gem 4 status %v, gem 5 status %v", c.vis.eng.Status(4), c.vis.eng.Status(5))
+			}
+		}
+	}
+	h.idle(1)
+	if c.mode != calDone {
+		t.Fatalf("mode %v after the last beat", c.mode)
+	}
+	if math.Abs(c.result-30) > 3 {
+		t.Fatalf("measured %.1f ms from %d taps, want about 30", c.result, len(c.offsets))
 	}
 }
