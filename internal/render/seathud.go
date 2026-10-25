@@ -59,7 +59,7 @@ type SeatHUD struct {
 
 // railX returns the x of the highway's right edge at screen y.
 func railX(hc HighwayConfig, y float64) float64 {
-	r := hc.FarRatio
+	r := math.Max(0.05, math.Min(hc.FarRatio, 0.95)) // 1 would put the horizon at infinity
 	hz := (hc.TopY - hc.StrikeY*r) / (1 - r)
 	return hc.CenterX + hc.NearWidth/2*(y-hz)/(hc.StrikeY-hz)
 }
