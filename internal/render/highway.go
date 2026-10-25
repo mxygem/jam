@@ -40,7 +40,20 @@ type FrameState struct {
 	Bounce     float64    // 0..1: how much open notes and kicks bounce the highway
 }
 
-func (h *Highway) far() float64 { return h.Cfg.FarRatio / (1 - h.Cfg.FarRatio) }
+// Far ratio limits. At 1 the far end is as wide as the near end: the
+// horizon is infinitely far away and the perspective math divides by zero.
+const (
+	MinFarRatio = 0.05
+	MaxFarRatio = 0.95
+)
+
+// farRatio is Cfg.FarRatio kept inside the range the perspective math can
+// handle, so a bad saved value can't break drawing.
+func (h *Highway) farRatio() float64 {
+	return math.Max(MinFarRatio, math.Min(h.Cfg.FarRatio, MaxFarRatio))
+}
+
+func (h *Highway) far() float64 { r := h.farRatio(); return r / (1 - r) }
 
 // Scale returns the perspective scale at depth z (1 at the strike line).
 func (h *Highway) Scale(z float64) float64 {
@@ -52,7 +65,7 @@ func (h *Highway) Scale(z float64) float64 {
 }
 
 func (h *Highway) horizon() float64 {
-	r := h.Cfg.FarRatio
+	r := h.farRatio()
 	return (h.Cfg.TopY - h.Cfg.StrikeY*r) / (1 - r)
 }
 

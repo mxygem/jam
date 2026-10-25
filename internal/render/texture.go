@@ -380,8 +380,11 @@ func (h *Highway) drawTexture(dst *ebiten.Image, tex *hwTexture, lanes int, now 
 		across := tex.w / (h.X(float64(lanes), lanes, zm) - h.X(0, lanes, zm))
 		along := (v(z1) - v(z0)) / math.Max(0.5, y0-y1)
 		lod := math.Log2(math.Max(across, along*0.75))
-		lv := int(math.Max(0, math.Floor(lod+0.15)))
-		if lv >= len(tex.levels) {
+		lv := 0
+		if !math.IsNaN(lod) && lod > 0 {
+			lv = int(math.Floor(lod + 0.15))
+		}
+		if lv < 0 || lv >= len(tex.levels) {
 			lv = len(tex.levels) - 1
 		}
 		k := 1 / math.Pow(2, float64(lv))

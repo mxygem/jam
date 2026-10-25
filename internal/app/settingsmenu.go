@@ -192,8 +192,10 @@ func newSettingsMenu(a *App, inSong bool) *settingsMenu {
 		{Label: "Highway width", Range: true, Value: func() string { return fmt.Sprintf("%.0f px", hw.NearWidth) },
 			Adjust: func(d int) { hw.NearWidth = clampf(hw.NearWidth+float64(d)*2, 300, 1400) }},
 		{Label: "Highway angle", Hint: "Lower is steeper (more perspective)", Range: true,
-			Value:  func() string { return fmt.Sprintf("%.3f", hw.FarRatio) },
-			Adjust: func(d int) { hw.FarRatio = clampf(hw.FarRatio+float64(d)*0.005, 0.05, 1) }},
+			Value: func() string { return fmt.Sprintf("%.3f", hw.FarRatio) },
+			Adjust: func(d int) {
+				hw.FarRatio = clampf(hw.FarRatio+float64(d)*0.005, render.MinFarRatio, render.MaxFarRatio)
+			}},
 		{Label: "Highway length", Hint: "How far up the screen the highway reaches", Range: true,
 			Value:  func() string { return fmt.Sprintf("%.0f", hw.StrikeY-hw.TopY) },
 			Adjust: func(d int) { hw.TopY = clampf(hw.TopY-float64(d)*2, 0, hw.StrikeY-150) }},
