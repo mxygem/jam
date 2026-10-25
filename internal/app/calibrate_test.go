@@ -119,3 +119,14 @@ func TestVideoCalibrationHighway(t *testing.T) {
 		t.Fatalf("measured %.1f ms from %d taps, want about 30", c.result, len(c.offsets))
 	}
 }
+
+// Every gem in the video calibration chart is an open note.
+func TestVideoCalibrationOpenNotes(t *testing.T) {
+	h := newHarness(t)
+	v := newCalVisual(h.a)
+	for i, n := range v.t.Notes {
+		if !n.IsOpen() {
+			t.Fatalf("gem %d is not an open note (lanes %08b)", i, n.Lanes)
+		}
+	}
+}

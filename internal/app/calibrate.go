@@ -248,7 +248,7 @@ func (c *Calibration) drawVideo(dst *ebiten.Image, now, rel float64) {
 }
 
 // calVisual is the video calibration's chart: one guitar gem per measured
-// beat, walking up and down the frets, drawn by the game's own highway
+// beat, every one an open note (a bar across the highway), drawn by the game's own highway
 // with the player's look. A tap clears the gem it was aimed at and flames
 // the strike line like a hit in a song, but nothing is judged: late gems
 // scroll past without turning into misses, so no red flashes pull the
@@ -260,8 +260,8 @@ type calVisual struct {
 	frame render.FrameState
 }
 
-// calLanes is the fret each measured beat lands on, in turn.
-var calLanes = [...]int{0, 1, 2, 3, 4, 3, 2, 1}
+// calOpen is the .chart lane number for an open note.
+const calOpen = 7
 
 // calChartText writes the calibration chart: 120 BPM, so one beat (192
 // ticks) is calInterval, with the first gem after calLead.
@@ -272,7 +272,7 @@ func calChartText() string {
 	b.WriteString("[Song]\n{\n  Resolution = 192\n  Offset = 0\n}\n")
 	b.WriteString("[SyncTrack]\n{\n  0 = TS 4\n  0 = B 120000\n}\n[Events]\n{\n}\n[ExpertSingle]\n{\n")
 	for k := 0; k < calBeats; k++ {
-		fmt.Fprintf(&b, "  %d = N %d 0\n", lead+k*res, calLanes[k%len(calLanes)])
+		fmt.Fprintf(&b, "  %d = N %d 0\n", lead+k*res, calOpen)
 	}
 	b.WriteString("}\n")
 	return b.String()
@@ -308,7 +308,7 @@ func (v *calVisual) tap(k int, t float64, counted bool) {
 	if k < 0 || k >= len(v.eng.hit) {
 		return
 	}
-	lane := calLanes[k%len(calLanes)]
+	lane := chart.LaneOpen
 	v.frame.Flash[lane] = t
 	if counted && !v.eng.hit[k] {
 		v.eng.hit[k] = true
