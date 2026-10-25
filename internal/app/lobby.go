@@ -105,13 +105,6 @@ func (l *Lobby) card(a *App, m *member) *lobbyCard {
 			Adjust: func(d int) { m.inst = cyclePart(m.inst, d, m.parts(nil)) }},
 		Item{Label: "Difficulty", Value: func() string { return m.diff.Title() },
 			Adjust: func(d int) { m.diff = cycleDiff(m.diff, d) }},
-		Item{Label: "Ready", Activate: func() {
-			if c.newProf {
-				c.newProf = false
-			}
-			c.ready = true
-			m.remember(a)
-		}},
 		Item{Label: "Controls", Hint: "Map this controller for your profile (only you are changed)", Activate: func() {
 			if c.newProf {
 				return
@@ -122,6 +115,15 @@ func (l *Lobby) card(a *App, m *member) *lobbyCard {
 				a.Band = b
 				a.SetScene(NewLobby(a))
 			}))
+		}},
+		// Ready is a button at the bottom of the card; drawCard sets its
+		// Gap so it sits there.
+		Item{Label: "Ready", Button: true, Tall: lobbyReadyH, Activate: func() {
+			if c.newProf {
+				c.newProf = false
+			}
+			c.ready = true
+			m.remember(a)
 		}},
 	)
 	c.list = List{Items: items, Visible: len(items)}
@@ -351,20 +353,34 @@ func (l *Lobby) drawCard(dst *ebiten.Image, a *App, m *member, c *lobbyCard, x, 
 	col := profileColor(m.prof)
 	Panel(dst, x, y, w, h)
 	render.FillRect(dst, x, y, w, 8, col)
-	name := truncateW(m.prof.Name, render.UIBold, 38, w-40)
+	// Rows inset so the selection bar (16 px past the list each side)
+	// stays inside the card; Ready pinned to the bottom, apart from the
+	// rest by a thin rule. The name lines up with the rows.
+	const rowH, pad = 38.0, 20.0
+	lx, ly, lw := x+pad+16, y+100, w-2*pad-32
+	name := truncateW(m.prof.Name, render.UIBold, 38, lw)
 	if c.newProf {
 		name = "New profile"
 	}
-	render.Text(dst, name, render.UIBold, 38, x+22, y+22, th.Text, render.Left)
-	dev := truncateW(m.dev.name(a), render.Cond, 22, w-44)
-	render.Text(dst, dev, render.Cond, 22, x+22, y+72, th.TextDim, render.Left)
+	render.Text(dst, name, render.UIBold, 38, lx, y+18, th.Text, render.Left)
+	dev := truncateW(m.dev.name(a), render.Cond, 22, lw-60)
+	render.Text(dst, dev, render.Cond, 22, lx, y+64, th.TextDim, render.Left)
 	if host {
-		render.Text(dst, "HOST", render.CondBold, 20, x+w-22, y+76, render.WithAlpha(col, 0.9), render.Right)
+		render.Text(dst, "HOST", render.CondBold, 20, lx+lw, y+68, render.WithAlpha(col, 0.9), render.Right)
 	}
-	rowH := 40.0
-	c.list.Draw(dst, x+10, y+106, w-20, rowH)
+	items := c.list.Items
+	last := len(items) - 1
+	readyTop := y + h - 12 - lobbyReadyH + 6 // the row starts 6 px below its box
+	items[last].Gap = readyTop - (ly + float64(last)*rowH)
+	ruleY := readyTop - 6 - 10
+	render.FillRect(dst, x+pad, ruleY, w-2*pad, 2, render.WithAlpha(th.TextDim, 0.25))
+	c.list.Draw(dst, lx, ly, lw, rowH)
 	if c.ready {
-		render.FillRect(dst, x, y+h-62, w, 62, render.WithAlpha(col, 0.85))
-		render.Text(dst, "READY", render.Display, 40, x+w/2, y+h-60, th.Text, render.Center)
+		bx, by, bw, bh := lx-16, readyTop-6, lw+32, lobbyReadyH-6
+		render.RoundRect(dst, bx, by, bw, bh, 12, render.WithAlpha(col, 0.9))
+		render.Text(dst, "READY", render.Display, 34, bx+bw/2, by+bh/2-21, th.Text, render.Center)
 	}
 }
+
+// lobbyReadyH is the height of the Ready button's row on a lobby card.
+const lobbyReadyH = 50.0

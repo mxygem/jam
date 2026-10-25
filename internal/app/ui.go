@@ -36,6 +36,11 @@ type Item struct {
 	// Extra, if set, draws something in the row between label and value
 	// (a color bar, say).
 	Extra func(dst *ebiten.Image, x, y, w, h float64)
+	// Gap is extra space above the row; Tall, if set, is the row's own
+	// height. Button rows are drawn as a centered button filling the row.
+	Gap    float64
+	Tall   float64
+	Button bool
 }
 
 func (it *Item) skip() bool { return it.Disabled || it.Header }
@@ -177,7 +182,7 @@ func (l *List) mouse(a *App) bool {
 	if !l.drawn {
 		return false
 	}
-	if m.Wheel != 0 && m.In(l.gx-20, l.gy-20, l.gw+40, l.gh*float64(l.Visible)+40) {
+	if m.Wheel != 0 && m.In(l.gx-20, l.gy-20, l.gw+40, l.height()+40) {
 		steps := int(-m.Wheel)
 		if steps == 0 {
 			steps = -1
@@ -191,8 +196,8 @@ func (l *List) mouse(a *App) bool {
 	if !m.Moved && !m.Click {
 		return false
 	}
-	i := l.Top + int((m.Y-l.gy+6)/l.gh)
-	if m.X < l.gx-16 || m.X > l.gx+l.gw+16 || m.Y < l.gy-6 || i < l.Top || i >= len(l.Items) || i >= l.Top+l.Visible {
+	i := l.rowAt(m.Y)
+	if m.X < l.gx-16 || m.X > l.gx+l.gw+16 || i < 0 {
 		return false
 	}
 	if l.Items[i].skip() {
@@ -235,7 +240,10 @@ func (l *List) Draw(dst *ebiten.Image, x, y, w, rowH float64) {
 	now := clock.Now()
 	for i := l.Top; i < len(l.Items) && i < l.Top+l.Visible; i++ {
 		it := l.Items[i]
-		ry := y + float64(i-l.Top)*rowH
+		ry, rowH := l.row(i)
+		// Text sits centered in the selection bar (ry-6, rowH-6): the
+		// label's caps are centered 23 px below where it's drawn.
+		ty := ry + rowH/2 - 32
 		if it.Header {
 			render.Text(dst, strings.ToUpper(it.Label), render.CondBold, 24, x, ry+rowH*0.34, th.Accent, render.Left)
 			tw, _ := render.Measure(strings.ToUpper(it.Label), render.CondBold, 24)
@@ -243,6 +251,10 @@ func (l *List) Draw(dst *ebiten.Image, x, y, w, rowH float64) {
 			continue
 		}
 		sel := i == l.Sel
+		if it.Button {
+			drawButtonRow(dst, it.Label, x-16, ry-6, w+32, rowH-6, ty, sel, it.Disabled, now)
+			continue
+		}
 		if sel {
 			glow := 0.85 + 0.15*math.Sin(now*5)
 			render.RoundRect(dst, x-16, ry-6, w+32, rowH-6, 12, render.WithAlpha(th.Accent, 0.18*glow))
@@ -255,7 +267,7 @@ func (l *List) Draw(dst *ebiten.Image, x, y, w, rowH float64) {
 		if it.Disabled {
 			c = render.WithAlpha(th.TextDim, 0.6)
 		}
-		render.Text(dst, it.Label, render.UI, 34, x, ry, c, render.Left)
+		render.Text(dst, it.Label, render.UI, 34, x, ty, c, render.Left)
 		if it.Extra != nil {
 			it.Extra(dst, x, ry, w, rowH)
 		}
@@ -274,16 +286,16 @@ func (l *List) Draw(dst *ebiten.Image, x, y, w, rowH float64) {
 				vw, _ := render.Measure(v, render.UIBold, 32)
 				bx := x + w - vw - 44
 				render.RoundRect(dst, bx-14, ry-4, vw+72, rowH-10, 10, render.WithAlpha(th.Accent, 0.9))
-				render.Text(dst, v, render.UIBold, 32, bx, ry+1, th.Text, render.Left)
+				render.Text(dst, v, render.UIBold, 32, bx, ty+1, th.Text, render.Left)
 				var b render.Batch
 				ax, ay := x+w+6, ry+rowH*0.38
 				b.Quad(dst, ax-9, ay-3, ax+9, ay-3, ax+9, ay-3, ax, ay-14, th.Text, th.Text, th.Text, th.Text)
 				b.Quad(dst, ax-9, ay+5, ax+9, ay+5, ax+9, ay+5, ax, ay+16, th.Text, th.Text, th.Text, th.Text)
 				b.Flush(dst)
 			case it.Adjust != nil && sel:
-				render.Text(dst, "<  "+v+"  >", render.UI, 32, x+w, ry+2, c, render.Right)
+				render.Text(dst, "<  "+v+"  >", render.UI, 32, x+w, ty+2, c, render.Right)
 			default:
-				render.Text(dst, v, render.UI, 32, x+w, ry+2, c, render.Right)
+				render.Text(dst, v, render.UI, 32, x+w, ty+2, c, render.Right)
 			}
 		}
 	}
@@ -293,10 +305,74 @@ func (l *List) Draw(dst *ebiten.Image, x, y, w, rowH float64) {
 		b.Quad(dst, cx-14, y-14, cx+14, y-14, cx+14, y-14, cx, y-30, th.TextDim, th.TextDim, th.TextDim, th.TextDim)
 	}
 	if l.Top+l.Visible < len(l.Items) {
-		yb := y + float64(l.Visible)*rowH
+		yb := y + l.height()
 		b.Quad(dst, cx-14, yb, cx+14, yb, cx+14, yb, cx, yb+16, th.TextDim, th.TextDim, th.TextDim, th.TextDim)
 	}
 	b.Flush(dst)
+}
+
+// row returns where item i's row starts and how tall it is, for the
+// current scroll position (it must be visible).
+func (l *List) row(i int) (float64, float64) {
+	y := l.gy
+	for j := l.Top; j <= i && j < len(l.Items); j++ {
+		y += l.Items[j].Gap
+		if j == i {
+			break
+		}
+		y += l.rowH(j)
+	}
+	return y, l.rowH(i)
+}
+
+func (l *List) rowH(i int) float64 {
+	if i >= 0 && i < len(l.Items) && l.Items[i].Tall > 0 {
+		return l.Items[i].Tall
+	}
+	return l.gh
+}
+
+// height is how tall the visible rows are.
+func (l *List) height() float64 {
+	last := min(len(l.Items), l.Top+l.Visible) - 1
+	if last < l.Top {
+		return 0
+	}
+	ry, h := l.row(last)
+	return ry + h - l.gy
+}
+
+// rowAt returns the visible item whose row (with its selection bar, which
+// starts 6 px above it) covers screen y, or -1.
+func (l *List) rowAt(y float64) int {
+	for i := l.Top; i < len(l.Items) && i < l.Top+l.Visible; i++ {
+		ry, h := l.row(i)
+		if y >= ry-6 && y < ry-6+h {
+			return i
+		}
+	}
+	return -1
+}
+
+// drawButtonRow draws a list row as a button: an outlined box with the
+// label centered, filled in the accent color when selected.
+func drawButtonRow(dst *ebiten.Image, label string, x, y, w, h, ty float64, sel, disabled bool, now float64) {
+	c := th.Text
+	if sel {
+		glow := 0.85 + 0.15*math.Sin(now*5)
+		render.RoundRect(dst, x, y, w, h, 12, render.WithAlpha(th.Accent, 0.9*glow))
+	} else {
+		render.RoundRect(dst, x, y, w, h, 12, render.WithAlpha(th.TextDim, 0.55))
+		bg := th.Panel
+		bg.A = 0xFF
+		render.RoundRect(dst, x+2, y+2, w-4, h-4, 10, bg)
+		render.RoundRect(dst, x+2, y+2, w-4, h-4, 10, render.WithAlpha(th.Text, 0.05))
+		c = render.Mix(th.Text, th.TextDim, 0.35)
+	}
+	if disabled {
+		c = render.WithAlpha(th.TextDim, 0.6)
+	}
+	render.Text(dst, label, render.UIBold, 34, x+w/2, ty, c, render.Center)
 }
 
 // drawSwatch draws a color sample with a thin border.

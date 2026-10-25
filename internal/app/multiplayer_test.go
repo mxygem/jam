@@ -123,16 +123,15 @@ func TestLobbyToBandResults(t *testing.T) {
 	if m2.inst != chart.Bass {
 		t.Fatalf("player 2 instrument %s, want bass", m2.inst.Title())
 	}
-	h.tapOn(1, bitDPadDown)
-	h.tapOn(1, bitDPadDown)
+	for i := 0; i < 3; i++ { // past Difficulty and Controls to Ready
+		h.tapOn(1, bitDPadDown)
+	}
 	h.tapOn(1, bitA)
 	if !l.cards[m2].ready {
 		t.Fatal("player 2 should be ready")
 	}
-	// guitar 1 (the host) goes down past Mode and Layout to Ready
-	for i := 0; i < 5; i++ {
-		h.tapOn(0, bitDPadDown)
-	}
+	// guitar 1 (the host) goes up from Mode, round to Ready at the bottom
+	h.tapOn(0, bitDPadUp)
 	h.tapOn(0, bitA)
 	h.until("song list", 3, sceneIs[*SongSelect](h), nil)
 	h.tap(bitA) // the band picker
@@ -296,6 +295,7 @@ func TestMultiplayerScreens(t *testing.T) {
 	l := a.scene.(*Lobby)
 	h.tapOn(1, bitDPadDown)
 	h.tapOn(1, bitLB) // bass
+	h.tapOn(1, bitDPadDown)
 	h.tapOn(1, bitDPadDown)
 	h.tapOn(1, bitDPadDown)
 	h.tapOn(1, bitA) // ready
@@ -543,7 +543,7 @@ func TestControlsSavedPerProfile(t *testing.T) {
 	if m.prof != sam {
 		t.Fatalf("the guitar should bring back Sam, got %s", m.prof.Name)
 	}
-	for i := 0; i < 6; i++ { // host card: Mode, Layout, Profile, Instrument, Difficulty, Ready, Controls
+	for i := 0; i < 5; i++ { // host card: Mode, Layout, Profile, Instrument, Difficulty, Controls, Ready
 		h.tapOn(1, bitDPadDown)
 	}
 	h.shot("controls-lobby")
@@ -557,4 +557,40 @@ func TestControlsSavedPerProfile(t *testing.T) {
 	if !sceneIs[*Lobby](h)() || len(a.Band.Members) != 1 {
 		t.Fatalf("leaving the setup should return to the lobby (scene %T)", a.scene)
 	}
+}
+
+// TestLobbyCardLayout checks Ready sits last on every card, below the
+// others, and draws the lobby with JAM_SHOTS.
+func TestLobbyCardLayout(t *testing.T) {
+	h := newHarness(t)
+	a := h.a
+	a.NewProfile("Sam")
+	a.scene = NewLobby(a)
+	h.idle(0.1)
+	h.tapOn(0, bitA)
+	h.tapOn(1, bitA)
+	l := a.scene.(*Lobby)
+	if len(l.band.Members) != 2 {
+		t.Fatalf("%d joined", len(l.band.Members))
+	}
+	for _, m := range l.band.Members {
+		items := l.cards[m].list.Items
+		if items[len(items)-1].Label != "Ready" {
+			t.Fatalf("%s: last row %q, want Ready", m.prof.Name, items[len(items)-1].Label)
+		}
+	}
+	// the host goes up from Mode, wrapping round to Ready
+	h.tapOn(0, bitDPadUp)
+	if c := l.cards[l.host()]; c.list.Items[c.list.Sel].Label != "Ready" {
+		t.Fatalf("host on %q, want Ready", c.list.Items[c.list.Sel].Label)
+	}
+	h.tapOn(1, bitDPadDown) // player 2 on Instrument
+	h.idle(0.2)
+	h.shot("lobby-cards")
+	h.tapOn(0, bitA)
+	if !l.cards[l.host()].ready {
+		t.Fatal("the host should be ready")
+	}
+	h.idle(0.2)
+	h.shot("lobby-cards-ready")
 }
