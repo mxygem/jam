@@ -31,6 +31,7 @@ const (
 	calMenu calMode = iota
 	calAudio
 	calVideo
+	calVideoClick
 	calDone
 )
 
@@ -54,11 +55,13 @@ type Calibration struct {
 // NewCalibration opens the calibration screen.
 func NewCalibration(a *App) *Calibration {
 	c := &Calibration{}
-	c.list = List{Visible: 3, Items: []Item{
+	c.list = List{Visible: 4, Items: []Item{
 		{Label: "Audio latency", Value: func() string { return fmt.Sprintf("%.0f ms", a.Settings.AudioOffsetMs) },
 			Hint: "Strum (or hit anything) on each click you HEAR", Activate: func() { c.begin(a, calAudio) }},
 		{Label: "Video latency", Value: func() string { return fmt.Sprintf("%.0f ms", a.Settings.VideoOffsetMs) },
 			Hint: "Strum when each gem you SEE crosses the line", Activate: func() { c.begin(a, calVideo) }},
+		{Label: "Video latency with click", Value: func() string { return fmt.Sprintf("%.0f ms", a.Settings.VideoOffsetMs) },
+			Hint: "Same highway, with a click as each gem reaches the line", Activate: func() { c.begin(a, calVideoClick) }},
 		{Label: "Back", Activate: func() { a.SetScene(NewSettingsAt(a, pageAudio)) }},
 	}}
 	return c
@@ -67,15 +70,23 @@ func NewCalibration(a *App) *Calibration {
 func (c *Calibration) begin(a *App, m calMode) {
 	c.mode, c.which = m, m
 	c.offsets = nil
-	if m == calAudio && a.Audio != nil {
+	if (m == calAudio || m == calVideoClick) && a.Audio != nil {
 		total := calLead + float64(calBeats)*calInterval + 1
 		pcm := playback.NewPCM(total)
-		for k := 0; ; k++ {
-			t := float64(k) * calInterval
-			if t > total-0.5 {
-				break
+		if m == calVideoClick {
+			// One click per gem, at the moment it reaches the strike line.
+			// The count-in stays silent.
+			for k := 0; k < calBeats; k++ {
+				pcm.Add(calLead+float64(k)*calInterval, playback.Click(k%4 == 0), 1)
 			}
-			pcm.Add(t, playback.Click(k%4 == 0), 1)
+		} else {
+			for k := 0; ; k++ {
+				t := float64(k) * calInterval
+				if t > total-0.5 {
+					break
+				}
+				pcm.Add(t, playback.Click(k%4 == 0), 1)
+			}
 		}
 		c.player = a.Audio.NewPlayerFromBytes(pcm.Bytes())
 		c.player.SetVolume(a.Settings.Volume)
@@ -83,7 +94,7 @@ func (c *Calibration) begin(a *App, m calMode) {
 	}
 	c.start = clock.Now()
 	c.vis = nil
-	if m == calVideo {
+	if m == calVideo || m == calVideoClick {
 		c.vis = newCalVisual(a)
 	}
 }
@@ -98,7 +109,7 @@ func (c *Calibration) Update(a *App) error {
 		if a.Pressed(action.MenuBack) {
 			a.SetScene(NewSettingsAt(a, pageAudio))
 		}
-	case calAudio, calVideo:
+	case calAudio, calVideo, calVideoClick:
 		for _, e := range a.Raw {
 			if !e.Down || e.Kind == input.KindAxis || e.Kind == input.KindCC {
 				continue
@@ -171,7 +182,7 @@ func (c *Calibration) finish(a *App) {
 				a.Settings.VideoOffsetMs = math.Round(c.result)
 			}
 			_ = a.Settings.Save()
-			log.Printf("calibration: %s offset set to %.0f ms (spread %.0f ms, %d taps)", map[calMode]string{calAudio: "audio", calVideo: "video"}[c.which], math.Round(c.result), c.spread, len(c.offsets))
+			log.Printf("calibration: %s offset set to %.0f ms (spread %.0f ms, %d taps)", map[calMode]string{calAudio: "audio", calVideo: "video", calVideoClick: "video (with click)"}[c.which], math.Round(c.result), c.spread, len(c.offsets))
 			a.Toast("Calibration saved")
 			c.mode = calMenu
 		}})
@@ -192,10 +203,10 @@ func (c *Calibration) Draw(dst *ebiten.Image, a *App) {
 		render.Text(dst, c.list.Hint(), render.UI, 28, 120, 520, th.TextDim, render.Left)
 		render.Text(dst, "Do audio first. Tap steadily with the beat rather than reacting to it.", render.UI, 26, 120, 580, th.TextDim, render.Left)
 		Footer(dst, "Enter select     Esc back")
-	case calAudio, calVideo:
+	case calAudio, calVideo, calVideoClick:
 		now := clock.Now()
 		rel := (now - c.beatTime(0)) / calInterval
-		if c.mode == calVideo && c.vis != nil {
+		if (c.mode == calVideo || c.mode == calVideoClick) && c.vis != nil {
 			c.drawVideo(dst, now, rel)
 			break
 		}
@@ -231,11 +242,19 @@ func (c *Calibration) drawVideo(dst *ebiten.Image, now, rel float64) {
 	c.vis.draw(dst, t)
 
 	x := 120.0
-	render.Text(dst, "Video latency", render.Display, 56, x, 150, th.Text, render.Left)
-	render.Text(dst, "Strum as each gem", render.UI, 32, x, 240, th.TextDim, render.Left)
-	render.Text(dst, "crosses the line.", render.UI, 32, x, 282, th.TextDim, render.Left)
-	render.Text(dst, "Go by what you see,", render.UI, 28, x, 352, th.TextDim, render.Left)
-	render.Text(dst, "not by sound.", render.UI, 28, x, 390, th.TextDim, render.Left)
+	if c.mode == calVideoClick {
+		render.Text(dst, "Video + click", render.Display, 56, x, 150, th.Text, render.Left)
+		render.Text(dst, "Strum as each gem", render.UI, 32, x, 240, th.TextDim, render.Left)
+		render.Text(dst, "crosses the line.", render.UI, 32, x, 282, th.TextDim, render.Left)
+		render.Text(dst, "The click plays as it", render.UI, 28, x, 352, th.TextDim, render.Left)
+		render.Text(dst, "arrives. Watch the gem.", render.UI, 28, x, 390, th.TextDim, render.Left)
+	} else {
+		render.Text(dst, "Video latency", render.Display, 56, x, 150, th.Text, render.Left)
+		render.Text(dst, "Strum as each gem", render.UI, 32, x, 240, th.TextDim, render.Left)
+		render.Text(dst, "crosses the line.", render.UI, 32, x, 282, th.TextDim, render.Left)
+		render.Text(dst, "Go by what you see,", render.UI, 28, x, 352, th.TextDim, render.Left)
+		render.Text(dst, "not by sound.", render.UI, 28, x, 390, th.TextDim, render.Left)
+	}
 	if rel < 0 {
 		render.Text(dst, fmt.Sprintf("starting in %d", int(math.Ceil(-rel*calInterval))), render.UIBold, 40, x, 500, th.Text, render.Left)
 	} else {

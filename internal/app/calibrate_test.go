@@ -130,3 +130,46 @@ func TestVideoCalibrationOpenNotes(t *testing.T) {
 		}
 	}
 }
+
+// The third option draws the same highway as video calibration and also
+// plays a click per gem; it measures taps the same way and "Use" stores the
+// result as the video offset.
+func TestVideoClickCalibration(t *testing.T) {
+	h := newHarness(t)
+	c := NewCalibration(h.a)
+	h.a.scene = c
+	for i := 0; i < 2; i++ { // strum down to "Video latency with click"
+		h.frame(xbtn(bitDPadDown, true))
+		h.frame(xbtn(bitDPadDown, false))
+	}
+	h.tap(bitA)
+	if c.mode != calVideoClick || c.vis == nil {
+		t.Fatalf("mode %v, visual %v", c.mode, c.vis != nil)
+	}
+	for k := 0; k < calBeats; k++ {
+		at := c.beatTime(k) + 0.020
+		for h.now < at {
+			h.frame()
+		}
+		ev := xbtn(bitDPadDown, true)
+		ev.Time = at
+		h.frame(ev)
+		if k == 7 {
+			h.idle(0.02)
+			h.shot("calibrate-video-click")
+		}
+		h.idle(0.05)
+		h.frame(xbtn(bitDPadDown, false))
+	}
+	h.idle(1)
+	if c.mode != calDone {
+		t.Fatalf("mode %v after the last beat", c.mode)
+	}
+	if math.Abs(c.result-20) > 3 {
+		t.Fatalf("measured %.1f ms from %d taps, want about 20", c.result, len(c.offsets))
+	}
+	h.tap(bitA) // "Use 20 ms"
+	if got := h.a.Settings.VideoOffsetMs; math.Abs(got-20) > 3 {
+		t.Fatalf("video offset saved as %v", got)
+	}
+}
