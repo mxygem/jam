@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 
 	"github.com/mxygem/jam/internal/action"
 	"github.com/mxygem/jam/internal/chart"
@@ -31,12 +32,20 @@ func NewBandResults(a *App, b *Band, song *chart.Song, c *chart.Chart, res []*se
 		sort.SliceStable(r.res, func(i, j int) bool { return r.res[i].rec.Result.Score > r.res[j].rec.Result.Score })
 	}
 	r.buttons = []string{"Pick another song", "Play it again", "Back to the lobby"}
-	r.sel = len(r.res) // first button
+	r.sel = len(r.res)  // "Pick another song"
+	if len(r.res) > 1 { // someone to compare with
+		r.buttons = append([]string{"Compare players"}, r.buttons...)
+		r.sel++
+	}
 	return r
 }
 
 func (r *BandResults) Update(a *App) error {
 	n := len(r.res) + len(r.buttons)
+	if inpututil.IsKeyJustPressed(ebiten.KeyC) && len(r.res) > 1 {
+		r.compare(a)
+		return nil
+	}
 	for _, act := range a.MenuActs {
 		switch act {
 		case action.MenuLeft, action.MenuUp:
@@ -54,12 +63,14 @@ func (r *BandResults) Update(a *App) error {
 				r.details(a, r.res[r.sel])
 				return nil
 			}
-			switch r.sel - len(r.res) {
-			case 0:
+			switch r.buttons[r.sel-len(r.res)] {
+			case "Compare players":
+				r.compare(a)
+			case "Pick another song":
 				a.SetScene(NewSongSelect(a))
-			case 1:
+			case "Play it again":
 				a.SetScene(NewBandLoading(a, r.band, r.song))
-			case 2:
+			case "Back to the lobby":
 				a.SetScene(NewLobby(a))
 			}
 			return nil
@@ -69,6 +80,11 @@ func (r *BandResults) Update(a *App) error {
 		a.TakeScreenshotNext()
 	}
 	return nil
+}
+
+// compare opens every player's breakdown side by side.
+func (r *BandResults) compare(a *App) {
+	a.SetScene(NewBandCompare(a, r.song, r.c, r.res, func(a *App) { a.SetScene(r) }))
 }
 
 // details opens one player's full results (sections, misses, timing).
@@ -149,7 +165,7 @@ func (r *BandResults) Draw(dst *ebiten.Image, a *App) {
 		render.Text(dst, b, render.UIBold, 30, x+widths[i]/2, by+12, th.Text, render.Center)
 		x += widths[i] + 24
 	}
-	Footer(dst, "Arrows / strum to choose     Enter / green open a player's details     Tab / yellow play again     Esc / red song list")
+	Footer(dst, "Arrows / strum to choose     Enter / green open a player's details     C compare     Tab / yellow play again     Esc / red song list")
 }
 
 func (r *BandResults) drawCard(dst *ebiten.Image, sr *seatResult, x, y, w, h float64, i int, on bool) {
