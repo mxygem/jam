@@ -3,3 +3,4 @@
 *.exe
 *.png
 /dist/
+!/assets/icon/*.png

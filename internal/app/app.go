@@ -19,6 +19,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 
+	"github.com/mxygem/jam/assets/icon"
 	"github.com/mxygem/jam/internal/action"
 	"github.com/mxygem/jam/internal/chart"
 	"github.com/mxygem/jam/internal/clock"
@@ -200,6 +201,11 @@ func Run(opts Options) error {
 	a.RescanLibrary()
 
 	ebiten.SetWindowTitle("jam")
+	if imgs, err := icon.Images(); err == nil {
+		ebiten.SetWindowIcon(imgs)
+	} else {
+		log.Printf("window icon: %v", err)
+	}
 	ebiten.SetWindowSize(1600, 900)
 	var ww, wh int
 	if _, err := fmt.Sscanf(opts.WindowSize, "%dx%d", &ww, &wh); err == nil && ww > 0 && wh > 0 {
