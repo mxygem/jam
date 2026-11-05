@@ -105,6 +105,8 @@ type Index struct {
 	total   int
 	running bool
 	gen     int // bumps whenever new info arrives (for UI refresh)
+
+	updating bool // Update is checking charts (running is for the analysis that follows)
 }
 
 func key(dir string) string { return strings.ToLower(filepath.Clean(dir)) }
@@ -166,26 +168,76 @@ func fresh(in *Info, s *chart.Song) bool {
 	return st.Size() == in.ChartSize && st.ModTime().UnixNano() == in.ChartMod
 }
 
+// freshWorkers is how many charts are checked against the cache at once.
+const freshWorkers = 4
+
+// staleSongs reports which songs need analyzing: the ones with no entry in
+// infos (parallel to songs) or whose chart file has changed since. Files are
+// checked by several workers, and no lock is held, because the checks are
+// one stat call per song and a big library has tens of thousands.
+func staleSongs(songs []*chart.Song, infos []*Info, workers int) []bool {
+	stale := make([]bool, len(songs))
+	workers = max(1, min(workers, len(songs)))
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// Each worker takes every workers-th song, so they never touch
+			// the same element and need no coordination.
+			for i := w; i < len(songs); i += workers {
+				stale[i] = !fresh(infos[i], songs[i])
+			}
+		}()
+	}
+	wg.Wait()
+	return stale
+}
+
+// testHookChecking, when set by a test, runs in Update after the lock is
+// released and before the charts are checked.
+var testHookChecking func()
+
 // Update indexes songs whose charts are new or changed, in the background,
 // and saves the cache when done. Songs no longer in the library are dropped.
 func (x *Index) Update(songs []*chart.Song) {
 	x.mu.Lock()
-	if x.running {
+	if x.running || x.updating {
 		x.mu.Unlock()
 		return
 	}
+	x.updating = true
+	infos := make([]*Info, len(songs))
+	for i, s := range songs {
+		infos[i] = x.infos[key(s.Dir)]
+	}
+	x.mu.Unlock()
+
+	if testHookChecking != nil {
+		testHookChecking()
+	}
+	stale := staleSongs(songs, infos, freshWorkers)
+
+	x.mu.Lock()
 	var todo []*chart.Song
-	keep := map[string]*Info{}
-	for _, s := range songs {
+	keep := make(map[string]*Info, len(songs))
+	for i, s := range songs {
 		k := key(s.Dir)
-		if in := x.infos[k]; fresh(in, s) {
-			keep[k] = in
-		} else {
+		if stale[i] {
 			todo = append(todo, s)
+			continue
+		}
+		// An entry added while the charts were being checked (a song loaded
+		// to play) is newer than the one that was checked.
+		if cur := x.infos[k]; cur != nil {
+			keep[k] = cur
+		} else {
+			keep[k] = infos[i]
 		}
 	}
 	x.infos = keep
 	x.done, x.total, x.running = 0, len(todo), len(todo) > 0
+	x.updating = false
 	x.gen++
 	x.mu.Unlock()
 	if len(todo) == 0 {
