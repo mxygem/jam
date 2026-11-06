@@ -45,6 +45,7 @@ const (
 	MenuConfirm
 	MenuBack
 	MenuOptions // song list options (sort, filters, playlists)
+	MenuStart   // the Start button in a menu (also counts as confirm)
 
 	Count
 )
@@ -61,7 +62,7 @@ var names = [...]string{
 	Start: "start", Select: "select",
 
 	MenuUp: "menu_up", MenuDown: "menu_down", MenuLeft: "menu_left", MenuRight: "menu_right",
-	MenuConfirm: "menu_confirm", MenuBack: "menu_back", MenuOptions: "menu_options",
+	MenuConfirm: "menu_confirm", MenuBack: "menu_back", MenuOptions: "menu_options", MenuStart: "menu_start",
 }
 
 var titles = [...]string{
@@ -77,7 +78,7 @@ var titles = [...]string{
 	Start: "Start", Select: "Select",
 
 	MenuUp: "Menu up", MenuDown: "Menu down", MenuLeft: "Menu left", MenuRight: "Menu right",
-	MenuConfirm: "Menu confirm", MenuBack: "Menu back", MenuOptions: "Menu options",
+	MenuConfirm: "Menu confirm", MenuBack: "Menu back", MenuOptions: "Menu options", MenuStart: "Menu start",
 }
 
 func (a Action) String() string {
@@ -120,6 +121,9 @@ func (a Action) FretLane() (int, bool) {
 // IsStrum reports whether the action is a strum.
 func (a Action) IsStrum() bool { return a == StrumUp || a == StrumDown }
 
+// IsMenu reports whether the action only moves around menus.
+func (a Action) IsMenu() bool { return a >= MenuUp && a <= MenuStart }
+
 // IsDrum reports whether the action is a drum pad/cymbal/kick.
 func (a Action) IsDrum() bool { return a >= Kick && a <= CymGreen }
 
@@ -132,6 +136,10 @@ var GuitarSet = Set{Green, Red, Yellow, Blue, Orange, StrumDown, StrumUp, StarPo
 
 // DrumSet is used for drums.
 var DrumSet = Set{DrumRed, CymYellow, DrumYellow, CymBlue, DrumBlue, CymGreen, DrumGreen, Kick, DrumOrange, StarPower, Start, Select}
+
+// MenuSet is the menu controls a guitar can have bound on their own, on top
+// of the frets and strum bar working in menus.
+var MenuSet = Set{MenuUp, MenuDown, MenuLeft, MenuRight, MenuConfirm, MenuBack, MenuOptions}
 
 // Optional reports whether a wizard may skip binding the action.
 func Optional(a Action) bool {

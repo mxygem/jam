@@ -33,8 +33,8 @@ func NewMenuInput(b *Bindings, devices []DeviceInfo) *MenuInput {
 		return q
 	}
 	return &MenuInput{
-		guitar: NewMapper(strip(b.Profile(FamilyGuitar)), devices),
-		drums:  NewMapper(strip(b.Profile(FamilyDrums)), devices),
+		guitar: newMapper(strip(b.Profile(FamilyGuitar)), devices, true),
+		drums:  newMapper(strip(b.Profile(FamilyDrums)), devices, true),
 	}
 }
 
@@ -89,6 +89,11 @@ func (mi *MenuInput) Feed(evs []RawEvent, now float64) []action.Action {
 		for _, m := range buf {
 			if a, ok := guitarMenu[m.Action]; ok {
 				press(a, m.Down, m.Time)
+			} else if m.Action.IsMenu() {
+				press(m.Action, m.Down, m.Time)
+			}
+			if m.Action == action.Start {
+				press(action.MenuStart, m.Down, m.Time)
 			}
 		}
 		buf = mi.drums.Map(e, buf[:0])
@@ -108,6 +113,9 @@ func (mi *MenuInput) Feed(evs []RawEvent, now float64) []action.Action {
 	}
 	return out
 }
+
+// Held reports whether a menu action is being held.
+func (mi *MenuInput) Held(a action.Action) bool { return mi.held[a] }
 
 // HeldFor is how long a menu direction has been held (0 when it isn't).
 func (mi *MenuInput) HeldFor(a action.Action, now float64) float64 {

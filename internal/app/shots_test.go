@@ -46,8 +46,9 @@ func TestSongSelectOverlays(t *testing.T) {
 	}
 	h.idle(0.1)
 	h.shot("options")
-	h.tap(bitDPadDown)
-	h.tap(bitDPadDown)
+	for range 4 {
+		h.tap(bitDPadDown)
+	}
 	h.tap(bitA) // Filters
 	if a.scene.(*SongSelect).ov != ovFilter {
 		t.Fatalf("filter editor did not open (ov %v)", a.scene.(*SongSelect).ov)
@@ -188,6 +189,20 @@ func TestSettingsPages(t *testing.T) {
 	h.shot("settings")
 	for _, id := range []string{pageGameplay, pageHighway, pageLooks, pageBackground, pageAudio, pageControls, pageLibrary} {
 		h.tap(bitA)
+		if id == pageControls {
+			if _, ok := a.scene.(*Controls); !ok {
+				t.Fatalf("Controls opened %T", a.scene)
+			}
+			h.shot("settings-" + id)
+			h.tap(bitB)
+			back, ok := a.scene.(*Settings)
+			if !ok || back.menu.page >= 0 || back.menu.cats.Items[back.menu.cats.Sel].Label != "Controls" {
+				t.Fatalf("back from Controls: %T", a.scene)
+			}
+			s = back
+			h.tap(bitDPadDown)
+			continue
+		}
 		if s.menu.pageID() != id {
 			t.Fatalf("opened %q, want %q", s.menu.pageID(), id)
 		}
@@ -195,16 +210,17 @@ func TestSettingsPages(t *testing.T) {
 		h.tap(bitB)
 		h.tap(bitDPadDown)
 	}
-	// Controls -> guitar setup -> Esc comes back to the Controls page.
-	s.menu.open(pageControls)
+	// Controls -> full setup -> Esc comes back to the Controls screen.
+	a.scene = NewControls(a)
+	c := a.scene.(*Controls)
+	c.list.Sel = len(c.list.Items) - 2
 	h.tap(bitA)
 	if _, ok := a.scene.(*Wizard); !ok {
 		t.Fatalf("scene %T, want the wizard", a.scene)
 	}
 	h.frame(keyDown(keyEscape))
 	h.idle(0.1)
-	back, ok := a.scene.(*Settings)
-	if !ok || back.menu.pageID() != pageControls {
+	if _, ok := a.scene.(*Controls); !ok {
 		t.Fatalf("after Esc: %T", a.scene)
 	}
 }

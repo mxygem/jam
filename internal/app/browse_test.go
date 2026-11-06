@@ -152,3 +152,31 @@ func TestFilters(t *testing.T) {
 		t.Errorf("search: %s", got)
 	}
 }
+
+// TestArtistAlbumByReleaseDate orders each artist's albums oldest first.
+func TestArtistAlbumByReleaseDate(t *testing.T) {
+	songs, x := testLibrary(t, []testSong{
+		{name: "z", artist: "Band", album: "Aardvark", year: "2010"},
+		{name: "y", artist: "Band", album: "Middle", year: ", 2004"},
+		{name: "x", artist: "Band", album: "Zebra", year: "1999"},
+		{name: "w", artist: "Band", album: "Middle", year: "2005"}, // a reissue shouldn't move the album
+		{name: "v", artist: "Band", album: "Unknown one"},
+	})
+	ctx := &browseCtx{index: x, now: time.Now()}
+	albums := func(desc bool) string {
+		set := config.Browse{Sort: "artist_album", Desc: desc}
+		var out []string
+		for _, r := range newBrowser().buildRows(songs, set, ctx) {
+			if r.sub {
+				out = append(out, r.header)
+			}
+		}
+		return strings.Join(out, ",")
+	}
+	if got := albums(false); got != "Zebra,Middle,Aardvark,Unknown one" {
+		t.Fatalf("oldest first: %s", got)
+	}
+	if got := albums(true); got != "Aardvark,Middle,Zebra,Unknown one" {
+		t.Fatalf("reversed: %s", got)
+	}
+}

@@ -84,7 +84,8 @@ type Wizard struct {
 // settings. It's for the profile linked to the controller that opened it
 // (or the active profile), and asks first when there's more than one.
 func NewWizard(a *App, fam input.Family) *Wizard {
-	w := newWizard(a, fam, a.Active, func(a *App) { a.SetScene(NewSettingsAt(a, pageControls)) })
+	w := newWizard(a, fam, a.Active, nil)
+	w.back = func(a *App) { a.SetScene(NewControlsFor(a, fam, w.prof, nil, leaveControls)) }
 	if a.confirmSet {
 		if p := a.DeviceOwner(a.confirmDev); p != nil {
 			w.prof = p
@@ -249,17 +250,52 @@ func (w *Wizard) usedBy(k input.ControlKey) (action.Action, bool) {
 	return 0, false
 }
 
-func (w *Wizard) bindingFor(a *App, e input.RawEvent) input.Binding {
+func (w *Wizard) bindingFor(a *App, e input.RawEvent) input.Binding { return bindingFromEvent(a, e) }
+
+// bindingFromEvent is the binding for a pressed control.
+func bindingFromEvent(a *App, e input.RawEvent) input.Binding {
 	b := input.Binding{Src: e.Src.String(), Device: -1, Kind: e.Kind.String(), Code: e.Code}
 	switch e.Src {
 	case input.SrcKeyboard:
 		b.Key = input.KeyName(e.Code)
 		b.Code = 0
 	case input.SrcMIDI:
-		b.DeviceName = w.devName
+		b.DeviceName = a.Input.DeviceName(e.Src, e.Device)
 		b.MinVel = 0.03
 	}
 	return b
+}
+
+// trackAxis follows an axis (or MIDI CC) event and returns a binding once
+// it's been moved far enough and has come back toward rest, or been held a
+// moment (tilt sensors may not return fully).
+func trackAxis(axes map[input.ControlKey]*axisTrack, baseline map[input.ControlKey]float32, e input.RawEvent, now float64) (input.Binding, bool) {
+	k := e.Key()
+	t, ok := axes[k]
+	if !ok {
+		base, has := baseline[k]
+		if !has {
+			base = e.Value
+		}
+		t = &axisTrack{key: k, base: base, extreme: base, since: now}
+		axes[k] = t
+	}
+	dev := e.Value - t.base
+	if abs32(dev) > abs32(t.extreme-t.base) {
+		t.extreme = e.Value
+	}
+	span := float32(2)
+	if k.Kind == input.KindCC || (k.Src == input.SrcXInput && k.Code >= 4) {
+		span = 1
+	}
+	if !t.tripped && abs32(dev) >= 0.45*span {
+		t.tripped = true
+		t.since = now
+	}
+	if t.tripped && (abs32(dev) < 0.2*span || now-t.since > 1.5) {
+		return input.Binding{Src: k.Src.String(), Device: -1, Kind: k.Kind.String(), Code: k.Code, Rest: t.base, Full: t.extreme}, true
+	}
+	return input.Binding{}, false
 }
 
 func (w *Wizard) describe(a *App, b input.Binding) string { return b.Describe() }
@@ -376,36 +412,11 @@ func (w *Wizard) updateBind(a *App, now float64, esc, back bool) {
 			}
 			return
 		case input.KindAxis, input.KindCC:
-			k := e.Key()
-			t, ok := w.axes[k]
-			if !ok {
-				base, has := w.baseline[k]
-				if !has {
-					base = e.Value
-				}
-				t = &axisTrack{key: k, base: base, extreme: base, since: now}
-				w.axes[k] = t
-			}
-			dev := e.Value - t.base
-			if abs32(dev) > abs32(t.extreme-t.base) {
-				t.extreme = e.Value
-			}
-			span := float32(2)
-			if k.Kind == input.KindCC || (k.Src == input.SrcXInput && k.Code >= 4) {
-				span = 1
-			}
-			if !t.tripped && abs32(dev) >= 0.45*span {
-				t.tripped = true
-				t.since = now
-			}
-			// Finish once the control has come back toward rest, or after
-			// being held for a moment (tilt sensors may not return fully).
-			if t.tripped && (abs32(dev) < 0.2*span || now-t.since > 1.5) {
-				b := input.Binding{Src: k.Src.String(), Device: -1, Kind: k.Kind.String(), Code: k.Code, Rest: t.base, Full: t.extreme}
+			if b, ok := trackAxis(w.axes, w.baseline, e, now); ok {
 				if act != action.Whammy {
 					b.Threshold = 0.55
 				}
-				if k.Src == input.SrcMIDI {
+				if e.Src == input.SrcMIDI {
 					b.DeviceName = w.devName
 				}
 				w.finishStep(a, captured{act: act, binds: []input.Binding{b}, desc: []string{b.Describe()}})

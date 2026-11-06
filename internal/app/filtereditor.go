@@ -212,7 +212,9 @@ func (e *filterEditor) draw(dst *ebiten.Image, a *App) {
 		Panel(dst, 520, 420, 880, 220)
 		render.Text(dst, fieldLabel(e.f.Fields[e.rule].Field)+" contains", render.UIBold, 32, 560, 440, th.Text, render.Left)
 		e.input.Draw(dst, 560, 500, 800)
-		render.Text(dst, "Enter to keep   Esc to cancel   Ctrl+Backspace clears", render.Cond, 22, 560, 590, th.TextDim, render.Left)
+		if !e.input.Keyboard() {
+			render.Text(dst, "Enter to keep   Esc to cancel   Ctrl+Backspace clears", render.Cond, 22, 560, 590, th.TextDim, render.Left)
+		}
 	}
 }
 

@@ -21,10 +21,8 @@ import (
 type artEntry struct {
 	path    string
 	decoded image.Image // set by the loader
-	thumb   *image.RGBA // tiny version for the blurred backdrop
 	err     error
 	sharp   *ebiten.Image
-	blur    *ebiten.Image
 	ready   bool
 	used    int
 }
@@ -55,7 +53,7 @@ func (c *artCache) get(path string) *artEntry {
 		return nil
 	}
 	e.used = c.tick
-	decoded, thumb, err := e.decoded, e.thumb, e.err
+	decoded, err := e.decoded, e.err
 	c.mu.Unlock()
 	if err != nil {
 		return nil
@@ -63,7 +61,6 @@ func (c *artCache) get(path string) *artEntry {
 	if !e.ready && decoded != nil {
 		// GPU images are made on the main thread.
 		e.sharp = ebiten.NewImageFromImage(decoded)
-		e.blur = ebiten.NewImageFromImage(thumb)
 		e.ready = true
 		c.mu.Lock()
 		e.decoded = nil // free the full size copy
@@ -103,10 +100,9 @@ func (c *artCache) load(e *artEntry) {
 		c.mu.Unlock()
 		return
 	}
-	img = fitWithin(img, 512) // the panel shows ~300 px; keep GPU memory small
-	thumb := shrink(img, 24)
+	img = fitWithin(img, 1024) // big enough for the song list backdrop
 	c.mu.Lock()
-	e.decoded, e.thumb = img, thumb
+	e.decoded = img
 	c.mu.Unlock()
 }
 
@@ -121,7 +117,6 @@ func (c *artCache) evict() {
 		}
 		if oldest.sharp != nil {
 			oldest.sharp.Deallocate()
-			oldest.blur.Deallocate()
 		}
 		delete(c.entries, oldest.path)
 	}
@@ -138,12 +133,6 @@ func fitWithin(img image.Image, n int) image.Image {
 		w, h = b.Dx()*n/b.Dy(), n
 	}
 	return boxScale(img, max(1, w), max(1, h))
-}
-
-// shrink makes a tiny square-ish thumbnail; stretched back up with linear
-// filtering it reads as a soft blur.
-func shrink(img image.Image, n int) *image.RGBA {
-	return boxScale(img, n, n)
 }
 
 func boxScale(img image.Image, w, h int) *image.RGBA {
@@ -175,8 +164,9 @@ func boxScale(img image.Image, w, h int) *image.RGBA {
 	return out
 }
 
-// backdrop draws the selected song's art blurred across the screen at about
-// half strength, cross-fading when the selection changes.
+// backdrop replaces the background with the selected song's art, covering
+// the whole screen and cross-fading when the selection changes. Songs without
+// art show the normal background.
 type backdrop struct {
 	cur, prev *artEntry
 	since     float64
@@ -197,11 +187,14 @@ func (b *backdrop) draw(dst *ebiten.Image) {
 		b.prev = nil
 	}
 	full, w, h, _, _ := render.Backdrop(dst)
-	if b.prev != nil {
-		drawCover(full, b.prev.blur, w, h, 0.5*(1-k))
-	}
-	if b.cur != nil {
-		drawCover(full, b.cur.blur, w, h, 0.5*k)
+	switch {
+	case b.prev != nil && b.cur != nil:
+		drawCover(full, b.prev.sharp, w, h, 1) // the new art fades in over the old
+		drawCover(full, b.cur.sharp, w, h, k)
+	case b.prev != nil:
+		drawCover(full, b.prev.sharp, w, h, 1-k)
+	case b.cur != nil:
+		drawCover(full, b.cur.sharp, w, h, k)
 	}
 	// keep text readable over bright art
 	if b.cur != nil || b.prev != nil {

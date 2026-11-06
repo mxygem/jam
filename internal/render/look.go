@@ -537,6 +537,14 @@ func LoadThemeFiles(dir string) ([]ThemeSpec, []error) {
 	return out, errs
 }
 
+// DeleteThemeFile removes dir/<name>.json.
+func DeleteThemeFile(dir, name string) error {
+	if name = SafeFileName(name); name == "" {
+		return fmt.Errorf("no theme named")
+	}
+	return os.Remove(filepath.Join(dir, name+".json"))
+}
+
 // SaveThemeFile writes a spec to dir/<name>.json and returns the path.
 func SaveThemeFile(dir, name string, s ThemeSpec) (string, error) {
 	name = SafeFileName(name)

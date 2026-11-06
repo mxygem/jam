@@ -12,6 +12,7 @@ const (
 	HUDStarPower = "star_power" // star power meter
 	HUDRock      = "rock"       // rock meter
 	HUDMessages  = "messages"   // pop-ups like SOLO! and STAR POWER READY
+	HUDInputs    = "inputs"     // the input viewer
 )
 
 // HUDItems lists the movable items in the order the editor steps through
@@ -24,6 +25,7 @@ var HUDItems = []struct{ ID, Label string }{
 	{HUDStarPower, "Star power"},
 	{HUDRock, "Rock meter"},
 	{HUDMessages, "Messages"},
+	{HUDInputs, "Input viewer"},
 }
 
 // HUDPlace is where one item sits relative to its default spot. DX is a

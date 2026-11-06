@@ -51,7 +51,9 @@ jam --song <folder> [--instrument drums] [--difficulty hard] [--autoplay]
 jam --song <folder> --players 4 [--mode band|h2h|party] [--layout auto|row|rows] [--autoplay]
 ```
 
-After a song, green goes back to the song list and yellow (or Tab) plays it again. Menus work from the keyboard (arrows, Enter, Esc), a guitar (strum to move, green to select, red to go back) or a drum kit (yellow up, blue down, green select, red back). F11 toggles fullscreen. Start or Esc pauses a song.
+After a song, green goes back to the song list and yellow (or Tab) plays it again. Menus work from the keyboard (arrows, Enter, Esc), a guitar (strum to move, green to select, red to go back) or a drum kit (yellow up, blue down, green select, red back). F11 toggles fullscreen. Start or Esc pauses a song. Coming out of pause runs the count-in with the song held still, and Start or Esc during it pauses again.
+
+On a guitar in the song list, tap yellow for the options, or hold yellow for shortcuts: green random, red next sort, blue filters, orange search, strum down reverses the order, strum up changes the difficulty scale. Text boxes open an on-screen keyboard when a controller was the last thing used: strum, blue/orange or the d-pad move, green presses, red deletes, yellow is a space, Start is done.
 
 Default guitar keys if you play on a keyboard: A S D F G for frets, Up/Down arrows to strum, Space for Star Power.
 
@@ -65,7 +67,7 @@ Main menu > Multiplayer opens the lobby. Anyone joins by pressing Start or green
 
 Layouts: Auto (up to 4 side by side, 5 to 8 in two rows of four), One row, or Two rows. Players pick from the parts their controller plays: a guitar any 5-fret part (guitar, bass, rhythm, keys, co-op), a drum kit drums, the keyboard anything. In band and head to head, the song list's picker shows each player's part for that song (left/right changes the instrument, green the difficulty); a player whose instrument the song doesn't have sits out. Any player's Start (or Esc) pauses. Results show every player's card; green opens one player's full analysis.
 
-Controller mappings belong to profiles. Settings > Controls asks whose controls you're setting up, starting on whoever owns the controller that pressed green (a controller belongs to the profile that last joined with it or set it up; the keyboard belongs to no one). A player's lobby card has Controls to map their own controller straight away, and Profiles has guitar and drum setup for each profile. Joining on a controller brings back the profile it belongs to.
+Controller mappings belong to profiles. Settings > Controls shows a player's current bindings, starting on whoever owns the controller that pressed green (a controller belongs to the profile that last joined with it or set it up; the keyboard belongs to no one). Green on a row rebinds just that control, and yellow adds another, removes one or goes back to the default; a control already in use swaps with what had it. Any button can be assigned, d-pad included, and Menus has its own rows. The full setup is a row at the bottom. A player's lobby card has Controls for their own controller, and Profiles has guitar and drum setup for each profile. Joining on a controller brings back the profile it belongs to.
 
 Every player's run is recorded under their profile. Band saves are part of the recording, so runs still re-simulate exactly. `jam --song <folder> --players 4 --autoplay [--mode h2h] [--layout rows]` plays a song with bots on every part (for trying layouts).
 

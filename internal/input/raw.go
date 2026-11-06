@@ -101,7 +101,7 @@ type ControlKey struct {
 func (e RawEvent) Key() ControlKey { return ControlKey{e.Src, e.Device, e.Kind, e.Code} }
 
 // XInput button bit names.
-var xinputButtonNames = [16]string{"DPadUp", "DPadDown", "DPadLeft", "DPadRight", "Start", "Back", "LeftThumb", "RightThumb", "LB", "RB", "Guide", "Bit11", "A", "B", "X", "Y"}
+var xinputButtonNames = [16]string{"D-pad up", "D-pad down", "D-pad left", "D-pad right", "Start", "Back", "LeftThumb", "RightThumb", "LB", "RB", "Guide", "Bit11", "A", "B", "X", "Y"}
 
 // XInput axis names in the order the poller reports them.
 var xinputAxisNames = [6]string{"LeftStickX", "LeftStickY", "RightStickX", "RightStickY", "LeftTrigger", "RightTrigger"}

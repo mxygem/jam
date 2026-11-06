@@ -482,16 +482,23 @@ func TestControlsSavedPerProfile(t *testing.T) {
 		t.Fatal("device links")
 	}
 	// Sam presses green on their guitar in Settings > Controls
-	a.scene = NewSettingsAt(a, pageControls)
+	st := NewSettings(a)
+	st.menu.selectPage(pageControls)
+	a.scene = st
 	h.idle(0.1)
 	h.tapOn(1, bitA)
-	w, ok := a.scene.(*Wizard)
-	if !ok || w.prof != sam || w.stage != stageWho {
-		t.Fatalf("scene %T: the setup should open on Sam's profile", a.scene)
+	c, ok := a.scene.(*Controls)
+	if !ok || c.prof != sam {
+		t.Fatalf("scene %T: Controls should open on Sam's profile", a.scene)
 	}
 	h.idle(0.1)
 	h.shot("controls-who")
-	h.tapOn(1, bitA) // Start
+	c.list.Sel = len(c.list.Items) - 2 // Run the full setup
+	h.tapOn(1, bitA)
+	w, ok := a.scene.(*Wizard)
+	if !ok || w.prof != sam {
+		t.Fatalf("scene %T: the setup should be Sam's", a.scene)
+	}
 	h.tapOn(1, bitY) // pick the controller
 	if w.stage != stageBind {
 		t.Fatalf("stage %v", w.stage)
@@ -548,12 +555,22 @@ func TestControlsSavedPerProfile(t *testing.T) {
 	}
 	h.shot("controls-lobby")
 	h.tapOn(1, bitY) // Sam's green
+	c2, ok := a.scene.(*Controls)
+	if !ok || c2.prof != sam || c2.dev == nil || c2.dev.index != 1 {
+		t.Fatalf("scene %T: the card's Controls should show Sam's guitar", a.scene)
+	}
+	c2.list.Sel = len(c2.list.Items) - 2 // Run the full setup
+	h.tapOn(1, bitY)                     // Sam's green
 	w2, ok := a.scene.(*Wizard)
 	if !ok || w2.prof != sam || w2.stage != stageBind || w2.devIdx != 1 {
-		t.Fatalf("scene %T: Controls should start Sam's setup on their guitar", a.scene)
+		t.Fatalf("scene %T: the full setup should start on Sam's guitar", a.scene)
 	}
 	h.frame(keyDown(keyEscape))
 	h.frame(input.RawEvent{Src: input.SrcKeyboard, Kind: input.KindKey, Code: int(keyEscape)})
+	if _, ok := a.scene.(*Controls); !ok {
+		t.Fatalf("leaving the setup should return to Controls (scene %T)", a.scene)
+	}
+	h.tapOn(1, bitB) // Sam's red is still red
 	if !sceneIs[*Lobby](h)() || len(a.Band.Members) != 1 {
 		t.Fatalf("leaving the setup should return to the lobby (scene %T)", a.scene)
 	}

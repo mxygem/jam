@@ -60,7 +60,7 @@ func TestGuitarWizardWithCRKDEvents(t *testing.T) {
 	p := h.a.Bindings.Profile(input.FamilyGuitar)
 	want := map[action.Action]string{
 		action.Green: "XInput A", action.Red: "XInput B", action.Yellow: "XInput Y", action.Blue: "XInput X",
-		action.Orange: "XInput LB", action.StrumDown: "XInput DPadDown", action.StrumUp: "XInput DPadUp",
+		action.Orange: "XInput LB", action.StrumDown: "XInput D-pad down", action.StrumUp: "XInput D-pad up",
 		action.StarPower: "XInput Back", action.Start: "XInput Start", action.Select: "XInput Back",
 		action.Tilt: "XInput RightStickY +", action.Whammy: "XInput RightStickX +",
 	}

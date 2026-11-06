@@ -28,6 +28,8 @@ type seat struct {
 	noPart bool         // the song has no part for their instrument
 
 	eng    engine.Engine
+	inputs *render.InputViewer
+	held   uint8 // frets the engine thinks are down
 	mapper *input.Mapper
 	mapped []input.Mapped
 	rec    *replay.Recorder
@@ -88,6 +90,7 @@ func newSeat(a *App, p *BandPlay, m *member, from float64) *seat {
 	s.t = full.Tail(s.first)
 	s.drums = s.t.Key.Inst.IsDrums()
 	s.eng = engine.New(p.c, s.t, s.set.Engine)
+	s.inputs = render.NewInputViewer(s.drums, s.t.DrumMode == chart.DrumsFiveLane)
 	if from > 0 {
 		s.lastEvT = from - 0.5
 	}
@@ -136,9 +139,30 @@ func (s *seat) feed(ev action.Event, st float64, src string) {
 	ev.Time = st
 	s.eng.Process(ev)
 	s.rec.Input(ev, src)
+	s.inputs.Feed(ev)
+	if l, ok := ev.Action.FretLane(); ok {
+		if ev.Down {
+			s.held |= 1 << l
+		} else {
+			s.held &^= 1 << l
+		}
+	}
 	if s.drums && ev.Down && ev.Action.IsDrum() {
 		if l := drumLaneOf(s.t.DrumMode, ev.Action); l >= 0 {
 			s.frame.PadHit[l] = st + s.videoOff
+		}
+	}
+}
+
+// syncFrets tells the engine about frets that changed during a pause.
+func (s *seat) syncFrets(st float64) {
+	for l, act := range fretActions {
+		if down := s.mapper.IsDown(act); down != (s.held&(1<<l) != 0) {
+			v := float32(0)
+			if down {
+				v = 1
+			}
+			s.feed(action.Event{Action: act, Down: down, Value: v}, st, "resume")
 		}
 	}
 }
@@ -302,6 +326,9 @@ func (s *seat) draw(dst *ebiten.Image, a *App, p *BandPlay, sl slot, rn float64,
 		h.SPActive = st.SPActive
 		h.Rock = st.Rock
 		info.Part = s.t.Key.Diff.Title() + " " + s.t.Key.Inst.Title()
+		if s.set.ShowInputs() {
+			info.Inputs, info.InputsAt = s.inputs, rn-s.videoOff
+		}
 	}
 	switch {
 	case s.noPart:

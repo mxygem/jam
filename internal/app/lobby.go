@@ -105,12 +105,12 @@ func (l *Lobby) card(a *App, m *member) *lobbyCard {
 			Adjust: func(d int) { m.inst = cyclePart(m.inst, d, m.parts(nil)) }},
 		Item{Label: "Difficulty", Value: func() string { return m.diff.Title() },
 			Adjust: func(d int) { m.diff = cycleDiff(m.diff, d) }},
-		Item{Label: "Controls", Hint: "Map this controller for your profile (only you are changed)", Activate: func() {
+		Item{Label: "Controls", Hint: "See and change what your controller does (only you are changed)", Activate: func() {
 			if c.newProf {
 				return
 			}
 			b := l.band
-			a.SetScene(NewWizardFor(a, m.family(), m.prof, &m.dev, func(a *App) {
+			a.SetScene(NewControlsFor(a, m.family(), m.prof, &m.dev, func(a *App) {
 				m.menu = input.NewMenuInput(a.BindingsFor(m.prof), a.Input.Devices())
 				a.Band = b
 				a.SetScene(NewLobby(a))

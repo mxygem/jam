@@ -16,10 +16,11 @@ const pageLooks = "looks"
 
 func lookItems(a *App, m *settingsMenu, inSong bool) []Item {
 	lk := &a.Settings.Look
+	deleteArmed := "" // the theme waiting for a second press to delete
 	items := []Item{
 		{Label: "Theme", Hint: "Colors, note material and highway style together. Changing anything below makes a custom look",
 			Value:  func() string { return truncateW(currentTheme(a).label, render.UI, 32, 380) },
-			Adjust: func(d int) { cycleTheme(a, sign(d)) }},
+			Adjust: func(d int) { cycleTheme(a, sign(d)); deleteArmed = "" }},
 	}
 	if !inSong {
 		items = append(items,
@@ -30,6 +31,20 @@ func lookItems(a *App, m *settingsMenu, inSong bool) []Item {
 						name = "My " + c.Base
 					}
 					m.startTyping("Name the theme", name, func(s string) { saveThemeFile(a, s) })
+				}},
+			Item{Label: "Delete this theme", Hint: "Removes the theme in use, if it's a theme file or the custom look. Built-in themes can't be deleted",
+				Value: func() string { return themeDeleteLabel(a, deleteArmed) },
+				Activate: func() {
+					id := currentTheme(a).id
+					switch {
+					case !themeDeletable(id):
+						a.Toast("Built-in themes can't be deleted")
+					case deleteArmed != id:
+						deleteArmed = id
+					default:
+						deleteArmed = ""
+						deleteTheme(a, id)
+					}
 				}},
 			Item{Label: "Open the themes folder", Hint: ThemesDir(), Activate: func() { openFolder(a, ThemesDir()) }},
 			Item{Label: "Open the highway images folder", Hint: "Images here show up under Highway texture", Activate: func() {

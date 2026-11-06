@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -342,6 +343,31 @@ func emptyOr(s, empty string) string {
 	return s
 }
 
+// albumKey identifies an album under its artist.
+func albumKey(m *meta) string { return m.lower[1] + "\x00" + m.lower[2] }
+
+var dateRe = regexp.MustCompile(`(\d{4})(?:[-/.](\d{1,2})(?:[-/.](\d{1,2}))?)?`)
+
+// songDate is a song's release date as yyyymmdd, for ordering (0 if it
+// doesn't have one). song.ini usually has only the year; missing months and
+// days count as the start of the year or month.
+func songDate(s *chart.Song) int {
+	v := rich.Plain(s.Year)
+	if s.Ini != nil {
+		if d := s.Ini.String("release_date"); d != "" {
+			v = d
+		}
+	}
+	m := dateRe.FindStringSubmatch(v)
+	if m == nil {
+		return 0
+	}
+	y, _ := strconv.Atoi(m[1])
+	mo, _ := strconv.Atoi(m[2])
+	d, _ := strconv.Atoi(m[3])
+	return y*10000 + mo*100 + d
+}
+
 // buildRows filters, sorts and groups songs.
 func (b *browser) buildRows(songs []*chart.Song, set config.Browse, ctx *browseCtx) []row {
 	type item struct {
@@ -351,10 +377,23 @@ func (b *browser) buildRows(songs []*chart.Song, set config.Browse, ctx *browseC
 		gsort  string // group order key
 		gnum   float64
 		sub    string // second-level header (artist_album)
+		date   int    // artist_album: the album's release date (0 unknown)
 		num    float64
 		hasNum bool
 	}
 	items := make([]item, 0, len(songs))
+	albumDates := map[string]int{} // earliest date of each artist's album
+	if set.Sort == "artist_album" {
+		for _, s := range songs {
+			if !b.keep(s, set.Filter, ctx) {
+				continue
+			}
+			k, d := albumKey(b.meta(s)), songDate(s)
+			if d > 0 && (albumDates[k] == 0 || d < albumDates[k]) {
+				albumDates[k] = d
+			}
+		}
+	}
 	for _, s := range songs {
 		if !b.keep(s, set.Filter, ctx) {
 			continue
@@ -366,6 +405,7 @@ func (b *browser) buildRows(songs []*chart.Song, set config.Browse, ctx *browseC
 		case "artist_album":
 			it.group, it.gsort = emptyOr(m.artist, "Unknown artist"), m.lower[1]
 			it.sub = emptyOr(m.album, "Unknown album")
+			it.date = albumDates[albumKey(m)]
 		case "title":
 			it.group = initial(m.title)
 			it.gsort = it.group
@@ -447,6 +487,12 @@ func (b *browser) buildRows(songs []*chart.Song, set config.Browse, ctx *browseC
 			return (a.gsort < b.gsort) != desc
 		}
 		if a.sub != b.sub {
+			if a.date != b.date { // oldest album first; undated albums last either way
+				if a.date == 0 || b.date == 0 {
+					return b.date == 0
+				}
+				return (a.date < b.date) != desc
+			}
 			return (strings.ToLower(a.sub) < strings.ToLower(b.sub)) != desc
 		}
 		if a.hasNum && a.num != b.num {

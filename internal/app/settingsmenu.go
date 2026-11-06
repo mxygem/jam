@@ -9,7 +9,6 @@ import (
 
 	"github.com/mxygem/jam/internal/action"
 	"github.com/mxygem/jam/internal/config"
-	"github.com/mxygem/jam/internal/input"
 	"github.com/mxygem/jam/internal/render"
 )
 
@@ -44,6 +43,9 @@ type settingsMenu struct {
 	typingTitle string
 	onTyped     func(string)
 
+	folders      *List        // removing a song folder
+	armed        string       // the folder waiting for a second press to remove
+	openControls func()       // opens the Controls screen
 	picker       *colorPicker // editing a theme color
 	previewDrums bool         // the Appearance preview plays drums
 }
@@ -177,7 +179,7 @@ func newSettingsMenu(a *App, inSong bool) *settingsMenu {
 			Value: func() string { return onOff(st.Engine.ProDrums) }, Adjust: func(int) { st.Engine.ProDrums = !st.Engine.ProDrums }},
 		{Label: "Expert+ double kick", Hint: "Include the extra kick notes on Expert drums" + nextRun,
 			Value: func() string { return onOff(st.Engine.ExpertPlus) }, Adjust: func(int) { st.Engine.ExpertPlus = !st.Engine.ExpertPlus }},
-		{Label: "Count-in", Hint: "Time before the song starts" + nextRun, Range: true,
+		{Label: "Count-in", Hint: "Time before the song starts, and before it carries on after a pause", Range: true,
 			Value:  func() string { return fmt.Sprintf("%.1f s", st.LeadIn) },
 			Adjust: func(d int) { st.LeadIn = clampf(st.LeadIn+float64(d)*0.1, 0.5, 10) }},
 	}
@@ -218,6 +220,15 @@ func newSettingsMenu(a *App, inSong bool) *settingsMenu {
 			}},
 		{Label: "Show hit timing", Hint: "Show +/- ms under the strike line on every hit",
 			Value: func() string { return onOff(st.ShowTiming) }, Adjust: func(int) { st.ShowTiming = !st.ShowTiming }},
+		{Label: "Input viewer", Hint: "Shows what you're pressing while you play: how long each control is held, how often it's pressed and how many times. Each player has their own",
+			Value: func() string { return onOff(st.ShowInputs()) },
+			Adjust: func(int) {
+				if st.ShowInputs() {
+					st.InputViewer = "off"
+				} else {
+					st.InputViewer = "on"
+				}
+			}},
 		{Label: "Show lyrics", Hint: "Karaoke-style lyrics across the top when a chart has them",
 			Value: func() string { return onOff(st.ShowLyrics) }, Adjust: func(int) { st.ShowLyrics = !st.ShowLyrics }},
 		{Label: "Backing vocals", Hint: "Harmony and backing parts, each in its own color, when a chart has them",
@@ -282,10 +293,7 @@ func newSettingsMenu(a *App, inSong bool) *settingsMenu {
 			Activate: func() { a.SetScene(NewCalibration(a)) }})
 	}
 
-	controls := []Item{
-		{Label: "Guitar / bass setup", Hint: "Map and test a guitar controller (or keyboard). Saved to the profile you pick, starting with whoever's controller pressed green", Activate: func() { a.SetScene(NewWizard(a, input.FamilyGuitar)) }},
-		{Label: "Drum setup", Hint: "Map a MIDI drum kit or keyboard keys pad by pad. Saved to the profile you pick", Activate: func() { a.SetScene(NewWizard(a, input.FamilyDrums)) }},
-	}
+	m.openControls = func() { a.SetScene(NewControls(a)) }
 
 	system := []Item{
 		{Label: "Fullscreen", Hint: "F11 or Alt+Enter also switch",
@@ -310,6 +318,8 @@ func newSettingsMenu(a *App, inSong bool) *settingsMenu {
 				m.startTyping("Add a song folder", "", func(s string) { addSongFolder(a, s) })
 				m.typing.Placeholder = `C:\Users\you\Songs`
 			}},
+			Item{Label: "Remove a song folder...", Hint: "Pick a folder to take out of the library. Its files stay on disk",
+				Activate: func() { m.openFolders(a) }},
 			Item{Label: "Rescan library", Activate: func() { a.RescanLibrary(); a.Toast("Rescanning library...") }},
 			Item{Label: "Multiplayer HUD layout...", Hint: "Drag the name, score, multiplier, streak, star power and rock meter where you want them on every highway",
 				Activate: func() { a.SetScene(NewHUDLayoutEditor(a, func() { a.SetScene(NewSettingsAt(a, pageLibrary)) })) }},
@@ -324,7 +334,7 @@ func newSettingsMenu(a *App, inSong bool) *settingsMenu {
 		{pageAudio, "Audio and timing", "Volume, previews, error sounds, offsets, latency calibration", audioItems},
 	}
 	if !inSong {
-		m.pages = append(m.pages, settingsPage{pageControls, "Controls", "Set up a guitar or drum kit", controls})
+		m.pages = append(m.pages, settingsPage{pageControls, "Controls", "See and change what every button does, for each player", nil})
 	}
 	title := "Display and library"
 	hint := "Fullscreen, VSync, results charts, song folders"
@@ -362,10 +372,24 @@ func (m *settingsMenu) changed() {
 func (m *settingsMenu) open(id string) {
 	for i, p := range m.pages {
 		if p.id == id {
+			if id == pageControls && m.openControls != nil {
+				m.cats.Sel = i
+				m.openControls()
+				return
+			}
 			m.page = i
 			m.cats.Sel = i
 			m.items = List{Items: p.items, Visible: m.cats.Visible}
 			return
+		}
+	}
+}
+
+// selectPage puts the page list's cursor on a page.
+func (m *settingsMenu) selectPage(id string) {
+	for i, p := range m.pages {
+		if p.id == id {
+			m.cats.Sel = i
 		}
 	}
 }
@@ -382,6 +406,9 @@ func (m *settingsMenu) pageID() string {
 func (m *settingsMenu) title() string {
 	if m.picker != nil {
 		return m.picker.slot.Label
+	}
+	if m.folders != nil {
+		return "Remove a song folder"
 	}
 	if m.page < 0 {
 		return "Settings"
@@ -414,6 +441,12 @@ func (m *settingsMenu) update(a *App) bool {
 		}
 		return false
 	}
+	if m.folders != nil {
+		if !m.folders.Update(a) && (a.Pressed(action.MenuBack) || a.Mouse.Right) {
+			m.folders, m.armed = nil, ""
+		}
+		return false
+	}
 	if m.page < 0 {
 		if m.cats.Update(a) {
 			return false
@@ -435,6 +468,8 @@ func (m *settingsMenu) rows() int {
 	switch {
 	case m.picker != nil:
 		l = &m.picker.list
+	case m.folders != nil:
+		l = m.folders
 	case m.page >= 0:
 		l = &m.items
 	}
@@ -446,6 +481,9 @@ func (m *settingsMenu) hint() string {
 	if m.picker != nil {
 		return m.picker.list.Hint()
 	}
+	if m.folders != nil {
+		return m.folders.Hint()
+	}
 	if m.page < 0 {
 		return m.cats.Hint()
 	}
@@ -456,6 +494,10 @@ func (m *settingsMenu) hint() string {
 func (m *settingsMenu) draw(dst *ebiten.Image, x, y, w, rowH float64) {
 	if m.picker != nil {
 		m.picker.list.Draw(dst, x, y, w, rowH)
+		return
+	}
+	if m.folders != nil {
+		m.folders.Draw(dst, x, y, w, rowH)
 		return
 	}
 	if m.page < 0 {
@@ -476,7 +518,57 @@ func (m *settingsMenu) drawTyping(dst *ebiten.Image) {
 	Panel(dst, 260, 400, 1400, 240)
 	render.Text(dst, m.typingTitle, render.UIBold, 36, 300, 430, th.Text, render.Left)
 	m.typing.Draw(dst, 300, 500, 1320)
-	render.Text(dst, "Enter to add, Esc to cancel", render.Cond, 24, 300, 580, th.TextDim, render.Left)
+	if !m.typing.Keyboard() {
+		render.Text(dst, "Enter to add, Esc to cancel", render.Cond, 24, 300, 580, th.TextDim, render.Left)
+	}
+}
+
+// openFolders lists the song folders to remove one. The first press arms a
+// folder and the second removes it, so a stray press does nothing.
+func (m *settingsMenu) openFolders(a *App) {
+	sel := 0
+	if m.folders != nil {
+		sel = m.folders.Sel
+	}
+	var items []Item
+	for _, p := range a.Settings.LibraryPaths {
+		p := p
+		items = append(items, Item{Label: truncateW(p, render.UI, 34, 740), Hint: p,
+			Value: func() string {
+				if m.armed == p {
+					return "Press again"
+				}
+				return ""
+			},
+			Activate: func() {
+				if m.armed != p {
+					m.armed = p
+					return
+				}
+				m.armed = ""
+				removeSongFolder(a, p)
+				m.openFolders(a)
+			}})
+	}
+	items = append(items, Item{Label: "Done", Activate: func() { m.folders, m.armed = nil, "" }})
+	m.folders = &List{Items: items, Visible: min(len(items), 9), Sel: min(sel, len(items)-1)}
+}
+
+// removeSongFolder takes a folder out of the library. Nothing on disk is
+// touched.
+func removeSongFolder(a *App, path string) {
+	var keep []string
+	for _, p := range a.Settings.LibraryPaths {
+		if p != path {
+			keep = append(keep, p)
+		}
+	}
+	a.Settings.LibraryPaths = keep
+	if err := a.Settings.Save(); err != nil {
+		a.Toast("Couldn't save settings: " + err.Error())
+	}
+	a.RescanLibrary()
+	a.Toast("Removed " + path + " from the library. Its files are still there")
 }
 
 // Error sound modes: which judgments make the miss noise.

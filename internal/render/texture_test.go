@@ -147,7 +147,7 @@ func TestCustomHighwayImages(t *testing.T) {
 		t.Errorf("label %q", TextureLabel("custom:highways/Board.png"))
 	}
 	tex := loadTexture("custom:highways/Board.png")
-	if tex == nil || tex.w != 512 || int(tex.h)%32 != 0 || len(tex.levels) < 4 {
+	if tex == nil || tex.w != customTexWidth || int(tex.h)%32 != 0 || tex.levels < 4 {
 		t.Fatalf("custom texture: %+v", tex)
 	}
 	if loadTexture("custom:highways/broken.png") != nil || loadTexture("custom:highways/missing.png") != nil {
@@ -170,5 +170,48 @@ func TestHalveKeepsAverage(t *testing.T) {
 	// (0 + 30 + 120 + 150) / 4 = 75
 	if r := h.RGBAAt(0, 0).R; r != 75 {
 		t.Errorf("got %d, want 75", r)
+	}
+}
+
+// TestTextureKeepsItsShape: texels are square at the strike line whatever
+// the highway's shape, and rounding a picture's height doesn't stretch it.
+func TestTextureKeepsItsShape(t *testing.T) {
+	for _, c := range []HighwayConfig{DefaultHighway(), {CenterX: 960, StrikeY: 945, TopY: 300, NearWidth: 900, FarRatio: 0.5, Lookahead: 1}} {
+		h := &Highway{Cfg: c}
+		tile := 1 / h.texLength() // depth of one highway width of board
+		dy := h.Y(0) - h.Y(tile*0.001)
+		if got, want := dy/0.001, c.NearWidth; math.Abs(got-want)/want > 0.01 {
+			t.Errorf("one width of board is %.0f px long at the strike line, want %.0f", got, want)
+		}
+	}
+	dir := t.TempDir()
+	HighwayImageDir = dir
+	if err := os.MkdirAll(filepath.Join(dir, "highways"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Create(filepath.Join(dir, "highways", "wide.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(f, image.NewRGBA(image.Rect(0, 0, 300, 100))); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	img, trueH, err := loadCustomTexture("highways/wide.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := img.Bounds(); b.Dx() != customTexWidth || b.Dy()%32 != 0 || math.Abs(trueH-341.33) > 0.01 {
+		t.Fatalf("%v, true height %.2f", b, trueH)
+	}
+	lv := []*image.RGBA{image.NewRGBA(image.Rect(0, 0, 8, 4)), image.NewRGBA(image.Rect(0, 0, 4, 2)), image.NewRGBA(image.Rect(0, 0, 2, 1))}
+	lv[2].Set(1, 0, color.White)
+	a := mipAtlas(lv)
+	if a.Bounds().Dx() != 12 || a.Bounds().Dy() != 4 {
+		t.Fatalf("atlas %v", a.Bounds())
+	}
+	// level 2 sits at x=w, y=h*(1-2/k) with k=4, where the shader looks
+	if _, _, _, al := a.At(9, 2).RGBA(); al == 0 {
+		t.Fatal("level 2 is not where the shader expects it")
 	}
 }

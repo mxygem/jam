@@ -81,6 +81,7 @@ type App struct {
 	scoresBy map[string]*replay.Scores
 	bindsBy  map[string]*input.Bindings
 
+	padNav     bool   // the last button pressed was on a controller, not the keyboard
 	confirmDev device // the controller that last pressed confirm
 	confirmSet bool
 	Art        *artCache

@@ -35,6 +35,7 @@ type Play struct {
 	rec     *replay.Recorder
 	hw      *render.Highway
 	hud     *render.HUD
+	inputs  *render.InputViewer
 	lyr     *render.Lyrics
 	lyrOpts render.LyricOpts // the options lyr was built with
 	frame   render.FrameState
@@ -42,6 +43,9 @@ type Play struct {
 	drums   bool
 
 	startClock   float64
+	lead         float64 // the count-in, in seconds
+	armedAt      float64 // when the count-in started
+	drew         bool    // the first frame is on screen, so the count-in can run
 	started      bool
 	biasSet      bool
 	biasBuf      []float64
@@ -64,6 +68,10 @@ type Play struct {
 
 	paused     bool
 	pauseClock float64
+	resuming   bool    // counting back in after a pause
+	resumeAt   float64 // when the song carries on
+	resumeLead float64 // how long that count is
+	engHeld    uint8   // frets the engine thinks are down
 	pause      List
 	pset       *settingsMenu // settings opened from the pause menu
 
@@ -97,6 +105,7 @@ func NewPlay(a *App, s *chart.Song, c *chart.Chart, t *chart.Track, au *playback
 	}
 	p.hw = &render.Highway{Cfg: hc}
 	p.hud = &render.HUD{Highway: p.hw}
+	p.inputs = render.NewInputViewer(p.drums, t.DrumMode == chart.DrumsFiveLane)
 	if set.ShowLyrics {
 		p.lyrOpts = lyricOpts(set)
 		p.lyr = p.newLyrics(p.lyrOpts)
@@ -113,6 +122,7 @@ func NewPlay(a *App, s *chart.Song, c *chart.Chart, t *chart.Track, au *playback
 		lead = 2.5
 	}
 	now := clock.Now()
+	p.lead, p.armedAt = lead, now
 	p.startClock = now + lead
 	p.prevClock = now
 	p.lastEvT = math.Inf(-1)
@@ -172,11 +182,25 @@ func (p *Play) Update(a *App) error {
 	dt := now - p.prevClock
 	p.prevClock = now
 	if p.paused {
+		// Keep up with the frets, so what's held when the song carries on
+		// is what's really held.
+		p.trackHeld(a)
 		return p.updatePause(a, now)
 	}
+	if p.resuming {
+		p.updateResume(a, now)
+		return nil
+	}
 
-	// Start audio when the lead-in ends.
+	// The count-in runs from the first frame on screen: the first frame of
+	// a song can be slow, and it shouldn't eat into the count.
+	if !p.drew && !a.fixed {
+		p.armedAt = now
+		p.startClock = now + p.lead
+	}
+	// Start audio when the count-in ends.
 	if !p.started && p.songNow(now) >= 0 {
+		log.Printf("count-in: set to %.1f s, ran %.2f s", p.lead, now-p.armedAt)
 		log.Printf("play: %s, %s %s, %d notes, stems %d, mute on miss %v", p.song.Title(), p.t.Key.Diff.Title(), p.t.Key.Inst.Title(), len(p.t.Notes), len(p.au.Stems), p.mute)
 		p.au.Play()
 		p.started = true
@@ -259,6 +283,14 @@ func (p *Play) feed(ev action.Event, st float64, src string) {
 	ev.Time = st
 	p.eng.Process(ev)
 	p.rec.Input(ev, src)
+	p.inputs.Feed(ev)
+	if l, ok := ev.Action.FretLane(); ok {
+		if ev.Down {
+			p.engHeld |= 1 << l
+		} else {
+			p.engHeld &^= 1 << l
+		}
+	}
 	if p.drums && ev.Down && ev.Action.IsDrum() {
 		if l := drumLaneOf(p.t.DrumMode, ev.Action); l >= 0 {
 			p.frame.PadHit[l] = st + p.videoOff
@@ -418,7 +450,7 @@ func (p *Play) openPause(a *App, now float64) {
 	p.pauseClock = now
 	p.au.Pause()
 	p.pause = List{Visible: 5, Items: []Item{
-		{Label: "Resume", Activate: func() { p.resume(now) }},
+		{Label: "Resume", Activate: func() { p.resume(a) }},
 		{Label: "Restart", Activate: func() {
 			p.au.Pause()
 			p.au.Seek(0)
@@ -445,15 +477,80 @@ func (p *Play) openPause(a *App, now float64) {
 	}}
 }
 
-func (p *Play) resume(float64) {
+// resume leaves the pause menu. Once the song is going it counts back in
+// first, with the song held still, so there's time to get your hands back.
+func (p *Play) resume(a *App) {
+	if !p.started {
+		p.unpause()
+		return
+	}
+	p.paused, p.resuming = false, true
+	p.resumeLead = countInLead(a)
+	p.resumeAt = clock.Now() + p.resumeLead
+}
+
+// countInLead is the count-in setting.
+func countInLead(a *App) float64 {
+	if l := a.Settings.LeadIn; l > 0 {
+		return l
+	}
+	return 2.5
+}
+
+// unpause carries the song on.
+func (p *Play) unpause() {
 	now := clock.Now()
 	p.startClock += now - p.pauseClock
-	p.paused = false
+	p.paused, p.resuming = false, false
 	p.prevClock = now
 	if p.started {
 		p.au.Play()
 	}
-	p.m.Reset()
+	if p.bot != nil {
+		return
+	}
+	// Tell the engine about frets that changed while it wasn't listening.
+	st := p.songNow(now) - p.audioOff
+	for l, act := range fretActions {
+		if down := p.m.IsDown(act); down != (p.engHeld&(1<<l) != 0) {
+			v := float32(0)
+			if down {
+				v = 1
+			}
+			p.feed(action.Event{Action: act, Down: down, Value: v}, st, "resume")
+		}
+	}
+}
+
+// trackHeld runs input through the mapper for its held state alone.
+func (p *Play) trackHeld(a *App) {
+	if p.bot != nil {
+		return
+	}
+	for _, ev := range a.Raw {
+		p.mapped = p.m.Map(ev, p.mapped[:0])
+	}
+}
+
+// updateResume runs the count back in: Start or Esc pauses again.
+func (p *Play) updateResume(a *App, now float64) {
+	for _, ev := range a.Raw {
+		pause := ev.Src == input.SrcKeyboard && ebiten.Key(ev.Code) == ebiten.KeyEscape && ev.Down
+		if p.bot == nil {
+			p.mapped = p.m.Map(ev, p.mapped[:0])
+			for _, mp := range p.mapped {
+				pause = pause || (mp.Action == action.Start && mp.Down)
+			}
+		}
+		if pause {
+			p.resuming = false
+			p.openPause(a, p.pauseClock)
+			return
+		}
+	}
+	if now >= p.resumeAt {
+		p.unpause()
+	}
 }
 
 // applyLive applies settings changed from the pause menu that can change
@@ -497,14 +594,14 @@ func (p *Play) updatePause(a *App, now float64) error {
 		return nil
 	}
 	if a.Pressed(action.MenuBack) {
-		p.resume(now)
+		p.resume(a)
 	}
 	return nil
 }
 
 func (p *Play) Draw(dst *ebiten.Image, a *App) {
 	now := clock.Now()
-	if p.paused {
+	if p.paused || p.resuming {
 		now = p.pauseClock
 	}
 	rn := p.renderNow(now)
@@ -564,16 +661,22 @@ func (p *Play) Draw(dst *ebiten.Image, a *App) {
 		h.SectionAt = p.c.Sections[idx].Time
 	}
 	p.hud.Draw(dst, h)
+	if a.Settings.ShowInputs() {
+		// beside the highway, above the score panel
+		_, ih := p.inputs.Size(1, false)
+		p.inputs.Draw(dst, p.hw.Cfg.CenterX-p.hw.Cfg.NearWidth/2-400, p.hw.Cfg.StrikeY-186-ih, 1, false, rn-p.videoOff)
+	}
 
 	if p.bot != nil {
 		render.Text(dst, "AUTOPLAY", render.CondBold, 26, render.ScreenW-40, 20, th.TextDim, render.Right)
 	}
 	if !p.started && p.songNow(now) < 0 {
-		left := -p.songNow(now)
-		if left < 1.5 {
-			render.TextShadow(dst, fmt.Sprintf("%d", int(math.Ceil(left))), render.Display, 120, render.ScreenW/2, 420, render.WithAlpha(th.Text, math.Min(1, left)), render.Center)
-		}
+		drawCountIn(dst, -p.songNow(now), p.lead)
 	}
+	if p.resuming {
+		drawCountIn(dst, p.resumeAt-clock.Now(), p.resumeLead)
+	}
+	p.drew = true
 	switch {
 	case p.paused && p.pset != nil:
 		p.drawPauseSettings(dst)
@@ -604,6 +707,19 @@ func (p *Play) drawPauseSettings(dst *ebiten.Image) {
 	m.draw(dst, x+20, 180, w-40, 66)
 	drawWrapped(dst, m.hint(), render.Cond, 24, x+4, 180+float64(m.rows())*66+24, w-10, th.TextDim)
 	render.Text(dst, "Left/right change   Esc / red back", render.Cond, 22, x+4, render.ScreenH-90, render.WithAlpha(th.TextDim, 0.8), render.Left)
+}
+
+// drawCountIn shows the count for the whole count-in: whole seconds left,
+// with a bar for the time remaining. left is seconds to go.
+func drawCountIn(dst *ebiten.Image, left, lead float64) {
+	n := int(math.Ceil(left))
+	pulse := left - math.Floor(left) // 1 at the start of each second
+	render.TextShadow(dst, fmt.Sprintf("%d", n), render.Display, 120, render.ScreenW/2, 400, render.WithAlpha(th.Text, 0.6+0.4*pulse), render.Center)
+	if lead > 0 {
+		w := 320.0
+		render.FillRect(dst, render.ScreenW/2-w/2, 548, w, 8, render.WithAlpha(th.TextDim, 0.3))
+		render.FillRect(dst, render.ScreenW/2-w/2, 548, w*math.Min(1, left/lead), 8, th.Accent)
+	}
 }
 
 func quitLabel(a *App) string {

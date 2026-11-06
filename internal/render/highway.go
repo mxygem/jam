@@ -98,6 +98,25 @@ func fadePast(z float64) float64 {
 	return 1
 }
 
+// lineAlpha is how solid a highway line is at a brightness setting (1 is
+// normal, 3 the most): below normal it dims in step, above it climbs to
+// fully solid, so faint lines have somewhere to go.
+func lineAlpha(base, brightness float64) float64 {
+	if brightness <= 1 {
+		return base * brightness
+	}
+	return math.Min(1, base+(1-base)*(brightness-1)/2)
+}
+
+// lineWidth thickens lines set above normal, so the setting still shows on
+// a small preview and on thin lines.
+func lineWidth(brightness float64) float64 {
+	if brightness <= 1 {
+		return 1
+	}
+	return 1 + (brightness-1)*0.75
+}
+
 // lanesFor returns the number of visual lanes and the chart-lane -> visual
 // position mapping (-1 for lanes drawn as bars: open notes, kicks).
 func lanesFor(t *chart.Track) (int, [7]int, [7]color.RGBA, *Theme) {
@@ -140,6 +159,9 @@ func (h *Highway) Draw(dst *ebiten.Image, f *FrameState) {
 	drums := t.Key.Inst.IsDrums()
 	b := &h.batch
 
+	// The texture keeps its size through the bounce below.
+	texLen := h.texLength()
+
 	// Kicks (drums) and open notes (guitar) knock the whole highway down a
 	// touch and let it bounce back.
 	thumpLane := chart.LaneOpen
@@ -180,7 +202,7 @@ func (h *Highway) Draw(dst *ebiten.Image, f *FrameState) {
 	if lk.Texture != TextureNone && lk.TextureStrength > 0 {
 		if tex := loadTexture(lk.Texture); tex != nil {
 			b.Flush(dst)
-			h.drawTexture(dst, tex, lanes, f.Now, surf, th.Beat, th.SPHighway, f.SPActive, lk.TextureStrength*opacity)
+			h.drawTexture(dst, tex, lanes, f.Now, texLen, surf, th.Beat, th.SPHighway, f.SPActive, lk.TextureStrength*opacity)
 		}
 	}
 	switch lk.Highway {
@@ -234,9 +256,9 @@ func (h *Highway) Draw(dst *ebiten.Image, f *FrameState) {
 		}
 		s := h.Scale(z)
 		y := h.Y(z)
-		c := WithAlpha(th.Beat, math.Min(1, alpha*lk.BeatLines)*a)
+		c := WithAlpha(th.Beat, lineAlpha(alpha, lk.BeatLines)*a)
 		if lk.BeatLines > 0 {
-			b.Line(dst, left(z), y, right(z), y, w*s, c, c)
+			b.Line(dst, left(z), y, right(z), y, w*lineWidth(lk.BeatLines)*s, c, c)
 		}
 	}
 
@@ -245,7 +267,7 @@ func (h *Highway) Draw(dst *ebiten.Image, f *FrameState) {
 		x0, y0 := h.X(float64(l), lanes, zMin), h.Y(zMin)
 		x1, y1 := h.X(float64(l), lanes, 1), h.Y(1)
 		if lk.LaneLines > 0 {
-			b.Line(dst, x0, y0, x1, y1, 1.6, WithAlpha(th.Beat, math.Min(1, 0.10*lk.LaneLines)), color.RGBA{})
+			b.Line(dst, x0, y0, x1, y1, 1.6*lineWidth(lk.LaneLines), WithAlpha(th.Beat, lineAlpha(0.10, lk.LaneLines)), color.RGBA{})
 		}
 	}
 	rail := th.Rail

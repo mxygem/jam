@@ -35,6 +35,7 @@ const (
 	ovPicker
 	ovOptions
 	ovFilter
+	ovSearch
 )
 
 // SongSelect lists the library: sorted, grouped, filtered and searchable.
@@ -60,6 +61,12 @@ type SongSelect struct {
 	want     string // song to select once the library has loaded
 	shotWait int
 	recent   []string // songs random picked lately, newest last
+
+	box        *TextInput // ovSearch: the search typed on the on-screen keyboard
+	searchWas  string     // what the search was before, for cancel
+	chordHeld  bool       // yellow / Tab is down: a shortcut or, on release, options
+	chordUsed  bool       // a shortcut was used while holding it
+	chordSince float64
 }
 
 // NewSongSelect builds the song list.
@@ -259,6 +266,25 @@ func (s *SongSelect) Update(a *App) error {
 			s.refresh(a)
 		}
 		return nil
+	case ovSearch:
+		done, cancel := s.box.Update(a)
+		if cancel {
+			s.box.Value = s.searchWas
+		}
+		if s.box.Value != s.search {
+			s.search = s.box.Value
+			s.refresh(a)
+			s.sel, s.top = 0, 0
+			s.fixSel(1)
+		}
+		if done || cancel {
+			s.ov = ovNone
+		}
+		return nil
+	}
+	if s.updateChord(a) {
+		s.afterInput(a)
+		return nil
 	}
 
 	// typing searches
@@ -315,7 +341,7 @@ func (s *SongSelect) Update(a *App) error {
 		case action.MenuRight:
 			s.jumpGroup(1)
 		case action.MenuOptions:
-			s.openOptions(a)
+			s.chordHeld, s.chordUsed, s.chordSince = true, false, clock.Now()
 		case action.MenuBack:
 			if s.search != "" {
 				s.search = ""
@@ -336,6 +362,80 @@ func (s *SongSelect) Update(a *App) error {
 		}
 	}
 	s.updateMouse(a)
+	s.afterInput(a)
+	return nil
+}
+
+// updateChord handles holding yellow (or Tab): a tap opens the options when
+// it's let go, and with it held the other frets are shortcuts. It returns
+// true while it's taking the input.
+func (s *SongSelect) updateChord(a *App) bool {
+	if !s.chordHeld {
+		return false
+	}
+	if !a.Menu.Held(action.MenuOptions) {
+		s.chordHeld = false
+		if !s.chordUsed {
+			s.openOptions(a)
+		}
+		return true
+	}
+	for _, act := range a.MenuActs {
+		used := true
+		switch act {
+		case action.MenuConfirm:
+			s.random()
+		case action.MenuBack:
+			s.cycleSort(a, 1)
+		case action.MenuLeft:
+			s.openFilter(a)
+		case action.MenuRight:
+			s.openSearch(a)
+		case action.MenuDown:
+			s.flipOrder(a)
+		case action.MenuUp:
+			s.cycleScale(a, 1)
+		default:
+			used = false
+		}
+		s.chordUsed = s.chordUsed || used
+	}
+	return true
+}
+
+// chordHints lists the shortcuts while yellow is held.
+var chordHints = []struct {
+	lane  int // fret color (-1 for the strum bar)
+	k, of string
+}{
+	{0, "Green", "Random song"}, {1, "Red", "Next sort"}, {3, "Blue", "Filters"}, {4, "Orange", "Search"},
+	{-1, "Strum down", "Reverse the order"}, {-1, "Strum up", "Difficulty scale"},
+}
+
+func (s *SongSelect) drawChord(dst *ebiten.Image) {
+	if !s.chordHeld || s.ov != ovNone || clock.Now()-s.chordSince < 0.2 {
+		return
+	}
+	x, y, w := 640.0, 300.0, 640.0
+	Panel(dst, x, y, w, 110+float64(len(chordHints))*56)
+	render.Text(dst, "Holding yellow", render.UIBold, 36, x+36, y+26, th.Text, render.Left)
+	var b render.Batch
+	for i, h := range chordHints {
+		ry := y + 92 + float64(i)*56
+		c := th.TextDim
+		if h.lane >= 0 {
+			c = th.Lanes[h.lane]
+		}
+		b.Ellipse(dst, x+54, ry+18, 13, 13, c, c)
+		b.Flush(dst)
+		render.Text(dst, h.k, render.CondBold, 30, x+84, ry, th.Text, render.Left)
+		render.Text(dst, h.of, render.UI, 30, x+w-36, ry-2, th.TextDim, render.Right)
+	}
+}
+
+// afterInput is the song list's per-frame work that doesn't depend on who
+// took the input.
+func (s *SongSelect) afterInput(a *App) {
 	s.prefetchArt(a)
 	a.Preview.Select(s.current())
 	if song := s.current(); song != nil {
@@ -351,7 +451,6 @@ func (s *SongSelect) Update(a *App) error {
 			}
 		}
 	}
-	return nil
 }
 
 // prefetchArt starts loading art for the selection and its neighbours so
@@ -448,6 +547,25 @@ func (s *SongSelect) openFilter(a *App) {
 	s.ov = ovFilter
 }
 
+// openSearch asks for the search with a text box, so it can be typed on the
+// on-screen keyboard. The list narrows as it's typed.
+func (s *SongSelect) openSearch(a *App) {
+	s.searchWas = s.search
+	s.box = &TextInput{Value: s.search, Placeholder: "title, artist, album or charter"}
+	s.ov = ovSearch
+}
+
+func (s *SongSelect) flipOrder(a *App) {
+	b := &a.Settings.Browse
+	b.Desc = !b.Desc
+	s.refresh(a)
+	if b.Desc {
+		a.Toast("Order reversed")
+	} else {
+		a.Toast("Normal order")
+	}
+}
+
 func (s *SongSelect) openOptions(a *App) {
 	b := &a.Settings.Browse
 	order := func() string {
@@ -459,8 +577,10 @@ func (s *SongSelect) openOptions(a *App) {
 	items := []Item{
 		{Label: "Random song", Hint: "Jumps to a random song from the list as it is filtered and searched (also F7)",
 			Activate: func() { s.random(); s.ov = ovNone }},
+		{Label: "Search", Value: func() string { return emptyOr(s.search, "None") }, Hint: "Find songs by title, artist, album or charter. Red on the list clears it",
+			Activate: func() { s.openSearch(a) }},
 		{Label: "Sort by", Value: func() string { return sortLabel(b.Sort) }, Adjust: func(d int) { s.cycleSort(a, d) }},
-		{Label: "Order", Value: order, Adjust: func(int) { b.Desc = !b.Desc; s.refresh(a) }},
+		{Label: "Order", Value: order, Adjust: func(int) { s.flipOrder(a) }},
 		{Label: "Filters", Value: func() string { return filterSummary(b.Filter) }, Activate: func() { s.openFilter(a) }},
 		{Label: "Difficulty scale", Value: func() string { return scaleLabel(b.DiffScale) }, Adjust: func(d int) { s.cycleScale(a, d) }},
 		{Label: "Rating part", Hint: "Which part the list's difficulty badges and difficulty sort use",
@@ -473,6 +593,8 @@ func (s *SongSelect) openOptions(a *App) {
 	}
 	items = append(items,
 		Item{Label: "Playlist", Value: func() string { return queueLabel(a) }, Activate: func() { a.SetScene(NewPlaylistScene(a)) }},
+		Item{Label: "Go to the first song", Activate: func() { s.sel, s.top = 0, 0; s.fixSel(1); s.ov = ovNone }},
+		Item{Label: "Go to the last song", Activate: func() { s.sel = len(s.rows) - 1; s.fixSel(-1); s.ov = ovNone }},
 		Item{Label: "Rescan library", Activate: func() { a.RescanLibrary(); s.scanning = true; s.ov = ovNone }},
 		Item{Label: "Close", Activate: func() { s.ov = ovNone; _ = a.Settings.Save() }},
 	)
@@ -660,8 +782,15 @@ func (s *SongSelect) Draw(dst *ebiten.Image, a *App) {
 		render.Text(dst, s.menu.Hint(), render.UI, 24, 510, 900, th.TextDim, render.Left)
 	case ovFilter:
 		s.filter.draw(dst, a)
+	case ovSearch:
+		render.Dim(dst, render.RGBA(0, 0, 0, 0xB8))
+		Panel(dst, 520, 400, 880, 220)
+		render.Text(dst, "Search", render.UIBold, 32, 560, 420, th.Text, render.Left)
+		s.box.Draw(dst, 560, 480, 800)
+		render.Text(dst, "Enter to keep   Esc to cancel", render.Cond, 22, 560, 566, th.TextDim, render.Left)
 	}
-	Footer(dst, "Type to search   Enter / green choose   Tab / yellow options   F2 sort   F3 filter   F4 difficulty scale   F6 playlist   F7 random   Esc / red back")
+	s.drawChord(dst)
+	Footer(dst, "Green choose   Yellow options (hold for shortcuts)   Red back   Keyboard: type to search, F2 sort, F3 filter, F4 scale, F6 playlist, F7 random")
 }
 
 func (s *SongSelect) subtitle(a *App) string {
@@ -703,7 +832,7 @@ func (s *SongSelect) subtitle(a *App) string {
 func (s *SongSelect) drawList(dst *ebiten.Image, a *App) {
 	GlassPanel(dst, listX-24, listY-20, listW+48, listBottom-listY+30)
 	if len(s.rows) == 0 {
-		msg := "No songs match. Press F3 for filters or Esc to clear the search."
+		msg := "No songs match. Yellow or F3 for filters, red or Esc clears the search."
 		if s.scanning {
 			msg = "Scanning your library..."
 		} else if len(s.all) == 0 {
@@ -883,7 +1012,7 @@ func (s *SongSelect) drawInfo(dst *ebiten.Image, a *App, song *chart.Song, art *
 
 	// parts with difficulty and best scores
 	scale := a.Settings.Browse.DiffScale
-	render.Text(dst, "PARTS  ·  "+strings.ToUpper(scaleLabel(scale))+"  (F4 to change)", render.CondBold, 20, infoX, y, render.WithAlpha(th.TextDim, 0.8), render.Left)
+	render.Text(dst, "PARTS  ·  "+strings.ToUpper(scaleLabel(scale))+"", render.CondBold, 20, infoX, y, render.WithAlpha(th.TextDim, 0.8), render.Left)
 	y += 32
 	if in == nil {
 		render.Text(dst, "Reading chart...", render.UI, 26, infoX, y, th.TextDim, render.Left)

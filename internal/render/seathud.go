@@ -25,6 +25,10 @@ type SeatInfo struct {
 	// Banner, if set, is a notice in a pill near the top of the highway
 	// (a party skip vote).
 	Banner string
+	// Inputs, if set, is the player's input viewer; InputsAt is the song
+	// time to show it at.
+	Inputs   *InputViewer
+	InputsAt float64
 }
 
 // SeatHighway fits a player's highway shape into a view vw wide.
@@ -56,6 +60,8 @@ type SeatHUD struct {
 	// Boxes is where each item was drawn last frame, for the editor.
 	Boxes map[string]Box
 }
+
+func dstWidth(dst *ebiten.Image) float64 { return float64(dst.Bounds().Dx()) }
 
 // railX returns the x of the highway's right edge at screen y.
 func railX(hc HighwayConfig, y float64) float64 {
@@ -211,6 +217,19 @@ func (u *SeatHUD) Draw(dst *ebiten.Image, hc HighwayConfig, s *HUDState, in *Sea
 			FillRect(dst, x, ry, nw, 8*k, WithAlpha(th.TextDim, 0.25))
 			FillRect(dst, x, ry, nw*math.Max(0, math.Min(1, s.Rock)), 8*k, c)
 			u.Boxes[HUDRock] = Box{x, ry - 4*k, nw, 16 * k}
+		}
+	}
+
+	// input viewer: in the gap beside the far end of the highway
+	if in.Inputs != nil {
+		if ok, dx, dy := item(HUDInputs); ok {
+			vw := dstWidth(dst)
+			compact := vw < 1000
+			ik := math.Max(0.8, math.Min(1, k))
+			iw, ih := in.Inputs.Size(ik, compact)
+			x, y := 10+dx, hc.TopY+40+dy
+			in.Inputs.Draw(dst, x, y, ik, compact, in.InputsAt)
+			u.Boxes[HUDInputs] = Box{x, y, iw, ih}
 		}
 	}
 

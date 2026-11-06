@@ -359,7 +359,7 @@ func (e *HUDLayoutEditor) drawSeat(dst *ebiten.Image, a *App, i int, sl slot) {
 		name = a.Active.Name
 	}
 	col, _ := render.ParseHex(profile.Palette[i%len(profile.Palette)])
-	info := render.SeatInfo{Name: name, Color: col, Part: "Expert Guitar", ShowRock: true}
+	info := render.SeatInfo{Name: name, Color: col, Part: "Expert Guitar", ShowRock: true, Inputs: hudSampleInputs}
 	s.hud.Layout = e.layout
 	s.hud.ShowHidden = true
 	s.hud.Draw(v, s.hc, &hs, &info)
@@ -393,3 +393,6 @@ func (e *HUDLayoutEditor) drawSeat(dst *ebiten.Image, a *App, i int, sl slot) {
 	op.GeoM.Translate(sl.x+(sl.w-vw*sc)/2, sl.y)
 	dst.DrawImage(v, op)
 }
+
+// hudSampleInputs is an empty input viewer for placing it on the screen.
+var hudSampleInputs = render.NewInputViewer(false, false)

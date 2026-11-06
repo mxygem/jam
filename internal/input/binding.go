@@ -118,6 +118,97 @@ func (p *Profile) Clear(a action.Action, src Source) {
 	p.Bindings[a.String()] = keep
 }
 
+// Remove takes one control off an action.
+func (p *Profile) Remove(a action.Action, b Binding) {
+	var keep []Binding
+	for _, old := range p.Bindings[a.String()] {
+		if !old.Same(b) {
+			keep = append(keep, old)
+		}
+	}
+	p.Bindings[a.String()] = keep
+}
+
+// Same reports whether two bindings are the same control.
+func (b Binding) Same(o Binding) bool {
+	return b.Src == o.Src && b.Kind == o.Kind && b.Code == o.Code && b.Key == o.Key
+}
+
+// Users lists the actions from set that a control is bound to.
+func (p *Profile) Users(b Binding, set action.Set) []action.Action {
+	var out []action.Action
+	for _, a := range set {
+		for _, x := range p.Get(a) {
+			if x.Same(b) {
+				out = append(out, a)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// Assign binds a control to an action, replacing what that action had from
+// the same kind of device (or alongside it with add). If another action in
+// set had the control, the two swap: the other action takes over what this
+// one gave up, so nothing is left unbound. It returns the action swapped
+// with (None if there wasn't one). shared lists actions allowed to share.
+func (p *Profile) Assign(a action.Action, b Binding, add bool, set action.Set, shared func(x, y action.Action) bool) action.Action {
+	src, _ := ParseSource(b.Src)
+	var old []Binding
+	for _, x := range p.Get(a) {
+		if x.Src == b.Src && !x.Same(b) {
+			old = append(old, x)
+		}
+	}
+	swapped := action.None
+	for _, other := range p.Users(b, set) {
+		if other == a || (shared != nil && shared(a, other)) {
+			continue
+		}
+		p.Remove(other, b)
+		swapped = other
+		if !add {
+			p.Bindings[other.String()] = append(p.Bindings[other.String()], old...)
+		}
+	}
+	if add {
+		p.Remove(a, b)
+		if p.Bindings == nil {
+			p.Bindings = map[string][]Binding{}
+		}
+		p.Bindings[a.String()] = append(p.Bindings[a.String()], b)
+	} else {
+		p.SetSource(a, src, []Binding{b})
+	}
+	return swapped
+}
+
+// Short is the binding's name for lists: the control without the device.
+func (b Binding) Short() string {
+	src, _ := ParseSource(b.Src)
+	kind, _ := ParseKind(b.Kind)
+	code := b.Code
+	if src == SrcKeyboard {
+		var k ebiten.Key
+		if err := k.UnmarshalText([]byte(b.Key)); err == nil {
+			code = int(k)
+		}
+		return "Key " + ControlName(src, kind, code, KeyName)
+	}
+	if kind == KindNote {
+		return fmt.Sprintf("Note %d", code)
+	}
+	name := ControlName(src, kind, code, KeyName)
+	if kind == KindAxis {
+		if b.Full < b.Rest {
+			return name + " -"
+		}
+		return name + " +"
+	}
+	return name
+}
+
 // Bindings is the saved bindings file.
 type Bindings struct {
 	Version  int                 `json:"version"`
@@ -152,9 +243,23 @@ func LoadBindings(path string) (*Bindings, error) {
 	if err := json.Unmarshal(data, b); err != nil {
 		return &Bindings{Version: 1}, fmt.Errorf("bindings file %s is invalid, using defaults: %w", path, err)
 	}
-	b.Profile(FamilyGuitar)
+	b.Profile(FamilyGuitar).addMenuDefaults()
 	b.Profile(FamilyDrums)
 	return b, nil
+}
+
+// addMenuDefaults gives files saved before menu controls could be bound
+// the d-pad in menus. An action that's in the file stays as it is, even
+// when it's empty: that means the player cleared it.
+func (p *Profile) addMenuDefaults() {
+	d := DefaultProfile(FamilyGuitar)
+	for _, a := range action.MenuSet {
+		if _, ok := p.Bindings[a.String()]; !ok {
+			if bs := d.Get(a); len(bs) > 0 {
+				p.Bindings[a.String()] = bs
+			}
+		}
+	}
 }
 
 // Save writes the bindings file.
@@ -199,6 +304,11 @@ func DefaultProfile(f Family) *Profile {
 		add(action.Tilt, Binding{Src: "xinput", Device: -1, Kind: "axis", Code: 3, Rest: 0, Full: 1, Threshold: 0.6})
 		add(action.Start, xbtn(4), key("Enter"))
 		add(action.Select, xbtn(5), key("Backspace"))
+		// The d-pad moves around menus whatever the frets and strum do.
+		add(action.MenuUp, xbtn(0))
+		add(action.MenuDown, xbtn(1))
+		add(action.MenuLeft, xbtn(2))
+		add(action.MenuRight, xbtn(3))
 	case FamilyDrums:
 		add(action.Kick, note(35), note(36), key("Space"))
 		add(action.DrumRed, note(38), note(40), note(37), key("A"))
@@ -283,8 +393,11 @@ type Mapper struct {
 	any    map[ControlKey][]int // device -1 bindings keyed with Device = -1
 }
 
-// NewMapper compiles a profile.
-func NewMapper(p *Profile, devices []DeviceInfo) *Mapper {
+// NewMapper compiles a profile for playing: menu-only bindings are left out,
+// so they never reach the engine or a recording.
+func NewMapper(p *Profile, devices []DeviceInfo) *Mapper { return newMapper(p, devices, false) }
+
+func newMapper(p *Profile, devices []DeviceInfo, menus bool) *Mapper {
 	m := &Mapper{index: map[ControlKey][]int{}, any: map[ControlKey][]int{}}
 	names := make([]string, 0, len(p.Bindings))
 	for n := range p.Bindings {
@@ -293,7 +406,7 @@ func NewMapper(p *Profile, devices []DeviceInfo) *Mapper {
 	sort.Strings(names)
 	for _, n := range names {
 		a, ok := action.Parse(n)
-		if !ok {
+		if !ok || (a.IsMenu() && !menus) {
 			continue
 		}
 		for _, b := range p.Bindings[n] {

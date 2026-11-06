@@ -127,6 +127,47 @@ func baseColor(a *App, slot render.ColorSlot) (render.ThemeSpec, bool) {
 	return render.ThemeSpec{}, false
 }
 
+// themeDeletable reports whether a theme can be deleted: files and the
+// custom look can, the built-ins can't.
+func themeDeletable(id string) bool {
+	return id == themeCustom || strings.HasPrefix(id, themeFilePref)
+}
+
+func themeDeleteLabel(a *App, armed string) string {
+	e := currentTheme(a)
+	switch {
+	case !themeDeletable(e.id):
+		return "Built-in"
+	case armed == e.id:
+		return "Press again to delete"
+	}
+	return truncateW(e.label, render.UI, 32, 340)
+}
+
+// deleteTheme removes a theme file or the custom look and goes to the theme
+// before it in the list.
+func deleteTheme(a *App, id string) {
+	list := themeEntries(a)
+	i := themeIndex(list, id)
+	if i < 0 {
+		return
+	}
+	lk := &a.Settings.Look
+	if id == themeCustom {
+		lk.Custom = nil
+	} else if err := render.DeleteThemeFile(ThemesDir(), strings.TrimPrefix(list[i].id, themeFilePref)); err != nil {
+		a.Toast("Couldn't delete the theme: " + err.Error())
+		return
+	}
+	lk.Theme = list[max(0, i-1)].id
+	applyLook(a)
+	if err := a.Settings.Save(); err != nil {
+		a.Toast("Couldn't save settings: " + err.Error())
+		return
+	}
+	a.Toast("Deleted " + list[i].label)
+}
+
 // saveThemeFile writes the look in use to the themes folder and switches
 // to the file.
 func saveThemeFile(a *App, name string) {

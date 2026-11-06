@@ -30,6 +30,10 @@ type BandPlay struct {
 	bots  bool // every seat played by the bot (screenshots and tests)
 
 	startClock, prevClock float64
+	lead, armedAt         float64 // the count-in and when it started
+	drew                  bool    // the first frame is on screen
+	resuming              bool    // counting back in after a pause
+	resumeAt, resumeLead  float64
 	started               bool
 	biasSet               bool
 	biasBuf               []float64
@@ -89,6 +93,7 @@ func NewBandPlay(a *App, b *Band, s *chart.Song, c *chart.Chart, au *playback.So
 		lead = 2.5
 	}
 	now := clock.Now()
+	p.lead, p.armedAt = lead, now
 	p.startClock = now + lead
 	p.prevClock = now
 	if set.Background == bgRandom {
@@ -139,9 +144,19 @@ func (p *BandPlay) Update(a *App) error {
 		return p.updateBetween(a, now)
 	}
 	if p.paused {
+		p.trackHeld(splitInput(a.Raw)) // what's held when the song carries on
 		return p.updatePause(a, now)
 	}
+	if p.resuming {
+		p.updateResume(a, now)
+		return nil
+	}
+	if !p.drew && !a.fixed { // the count-in runs from the first frame on screen
+		p.armedAt = now
+		p.startClock = now + p.lead
+	}
 	if !p.started && p.songNow(now) >= 0 {
+		log.Printf("count-in: set to %.1f s, ran %.2f s", p.lead, now-p.armedAt)
 		p.au.Play()
 		p.started = true
 		p.startClock = now
@@ -452,10 +467,10 @@ func (p *BandPlay) openPause(a *App, now float64) {
 	p.paused = true
 	p.pauseClock = now
 	p.au.Pause()
-	items := []Item{{Label: "Resume", Activate: func() { p.resume() }}}
+	items := []Item{{Label: "Resume", Activate: func() { p.resume(a) }}}
 	if p.party {
 		items = append(items,
-			Item{Label: "Skip this song", Activate: func() { p.resume(); p.finish(a, false) }},
+			Item{Label: "Skip this song", Activate: func() { p.unpause(); p.finish(a, false) }},
 			Item{Label: "Back to the lobby", Activate: func() { p.quit(a, true) }},
 		)
 	} else {
@@ -485,18 +500,71 @@ func (p *BandPlay) quit(a *App, lobby bool) {
 	a.SetScene(NewSongSelect(a))
 }
 
-func (p *BandPlay) resume() {
+// resume leaves the pause menu, counting back in once the song is going.
+func (p *BandPlay) resume(a *App) {
+	if !p.started {
+		p.unpause()
+		return
+	}
+	p.paused, p.resuming = false, true
+	p.resumeLead = countInLead(a)
+	p.resumeAt = clock.Now() + p.resumeLead
+}
+
+// unpause carries the song on.
+func (p *BandPlay) unpause() {
 	now := clock.Now()
 	p.startClock += now - p.pauseClock
-	p.paused = false
+	p.paused, p.resuming = false, false
 	p.prevClock = now
 	if p.started {
 		p.au.Play()
 	}
 	for _, s := range p.seats {
-		if s.mapper != nil {
-			s.mapper.Reset()
+		if s.mapper != nil && s.playing() && !s.out && !s.failed && s.bot == nil {
+			s.syncFrets(p.songNow(now) - s.audioOff)
 		}
+	}
+}
+
+// trackHeld runs input through each player's mapper for its held state.
+func (p *BandPlay) trackHeld(byDev map[device][]input.RawEvent) {
+	for _, s := range p.seats {
+		if s.mapper == nil {
+			continue
+		}
+		for _, ev := range byDev[s.m.dev] {
+			s.mapped = s.mapper.Map(ev, s.mapped[:0])
+		}
+	}
+}
+
+// updateResume runs the count back in: Esc (or Start, outside party mode,
+// where it's each player's own menu) pauses again.
+func (p *BandPlay) updateResume(a *App, now float64) {
+	pause := false
+	for _, ev := range a.Raw {
+		pause = pause || (ev.Src == input.SrcKeyboard && ebiten.Key(ev.Code) == ebiten.KeyEscape && ev.Down)
+	}
+	byDev := splitInput(a.Raw)
+	for _, s := range p.seats {
+		if s.mapper == nil {
+			continue
+		}
+		for _, ev := range byDev[s.m.dev] {
+			s.mapped = s.mapper.Map(ev, s.mapped[:0])
+			for _, mp := range s.mapped {
+				pause = pause || (!p.party && mp.Action == action.Start && mp.Down)
+			}
+		}
+	}
+	if pause {
+		p.resuming = false
+		p.openPause(a, p.pauseClock)
+		return
+	}
+	if now >= p.resumeAt {
+		p.unpause()
 	}
 }
 
@@ -505,7 +573,7 @@ func (p *BandPlay) updatePause(a *App, now float64) error {
 		return nil
 	}
 	if a.Pressed(action.MenuBack) {
-		p.resume()
+		p.resume(a)
 	}
 	return nil
 }
@@ -523,7 +591,7 @@ func (p *BandPlay) top() float64 {
 
 func (p *BandPlay) Draw(dst *ebiten.Image, a *App) {
 	now := clock.Now()
-	if p.paused {
+	if p.paused || p.resuming {
 		now = p.pauseClock
 	}
 	rn := p.renderNow(now)
@@ -554,11 +622,12 @@ func (p *BandPlay) Draw(dst *ebiten.Image, a *App) {
 	p.drawTop(dst, a, rn)
 
 	if !p.started && p.songNow(now) < 0 {
-		left := -p.songNow(now)
-		if left < 1.5 {
-			render.TextShadow(dst, fmt.Sprintf("%d", int(math.Ceil(left))), render.Display, 120, render.ScreenW/2, 420, render.WithAlpha(th.Text, math.Min(1, left)), render.Center)
-		}
+		drawCountIn(dst, -p.songNow(now), p.lead)
 	}
+	if p.resuming {
+		drawCountIn(dst, p.resumeAt-clock.Now(), p.resumeLead)
+	}
+	p.drew = true
 	if p.bots {
 		render.Text(dst, "AUTOPLAY", render.CondBold, 22, render.ScreenW-110, 12, th.TextDim, render.Right)
 	}

@@ -238,6 +238,13 @@ func (a *App) LinkDevice(p *profile.Profile, d device) {
 // noteConfirm remembers which controller pressed confirm this frame (for
 // the controller setup's guess).
 func (a *App) noteConfirm() {
+	// Whatever was pressed last decides whether text boxes open the
+	// on-screen keyboard.
+	for _, e := range a.Raw {
+		if e.Down && e.Kind != input.KindAxis {
+			a.padNav = e.Src != input.SrcKeyboard
+		}
+	}
 	if !a.Pressed(action.MenuConfirm) {
 		return
 	}

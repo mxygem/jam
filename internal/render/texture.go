@@ -167,12 +167,16 @@ func ParseTexture(s string) string {
 	return TextureNone
 }
 
-// hwTexture is a texture ready to draw: mip levels, each half the size of
-// the one before, so the far end of the highway doesn't shimmer.
+// hwTexture is a texture ready to draw: one image holding the full size
+// picture with its mip levels (each half the size of the one before) in a
+// column to its right, so the shader can blend between levels per pixel and
+// the far end of the highway doesn't shimmer.
 type hwTexture struct {
 	kind   texKind
-	levels []*ebiten.Image
+	atlas  *ebiten.Image
+	levels int
 	w, h   float64 // level 0 size
+	trueH  float64 // the picture's real height at width w, before h was rounded
 }
 
 var (
@@ -187,6 +191,7 @@ type texPixels struct {
 	once   sync.Once
 	kind   texKind
 	levels []*image.RGBA
+	trueH  float64
 }
 
 func pixelsFor(id string) *texPixels {
@@ -200,12 +205,12 @@ func pixelsFor(id string) *texPixels {
 	p.once.Do(func() {
 		var src *image.RGBA
 		if strings.HasPrefix(id, customPrefix) {
-			img, err := loadCustomTexture(strings.TrimPrefix(id, customPrefix))
+			img, trueH, err := loadCustomTexture(strings.TrimPrefix(id, customPrefix))
 			if err != nil {
 				log.Printf("highway texture %s: %v", id, err)
 				return
 			}
-			src = img
+			src, p.trueH = img, trueH
 		} else {
 			for _, d := range builtinTextures {
 				if d.id == id {
@@ -215,10 +220,14 @@ func pixelsFor(id string) *texPixels {
 			if src == nil {
 				return
 			}
+			p.trueH = float64(src.Bounds().Dy())
 		}
+		// The shader works out each level's size by halving, so stop before
+		// a side would need rounding.
 		for lv := src; ; lv = halve(lv) {
 			p.levels = append(p.levels, lv)
-			if lv.Bounds().Dx() <= 16 || lv.Bounds().Dy() <= 16 || len(p.levels) >= 7 {
+			w, h := lv.Bounds().Dx(), lv.Bounds().Dy()
+			if w <= 16 || h <= 16 || w%2 != 0 || h%2 != 0 || len(p.levels) >= 7 {
 				break
 			}
 		}
@@ -249,10 +258,8 @@ func loadTexture(id string) *hwTexture {
 	p := pixelsFor(id)
 	if len(p.levels) > 0 {
 		b := p.levels[0].Bounds()
-		t = &hwTexture{kind: p.kind, w: float64(b.Dx()), h: float64(b.Dy())}
-		for _, lv := range p.levels {
-			t.levels = append(t.levels, ebiten.NewImageFromImage(lv))
-		}
+		t = &hwTexture{kind: p.kind, w: float64(b.Dx()), h: float64(b.Dy()), trueH: p.trueH, levels: len(p.levels)}
+		t.atlas = ebiten.NewImageFromImage(mipAtlas(p.levels))
 	}
 	texMu.Lock()
 	texCache[id] = t // nil for a file that can't be read, so it's tried once
@@ -260,21 +267,28 @@ func loadTexture(id string) *hwTexture {
 	return t
 }
 
-// loadCustomTexture reads a player's image, scaled to 512 wide with a
-// height that halves cleanly a few times.
-func loadCustomTexture(rel string) (*image.RGBA, error) {
+// customTexWidth is how wide a player's image is kept. The highway is 640
+// wide on the 1920x1080 canvas and more on bigger screens.
+const customTexWidth = 1024
+
+// loadCustomTexture reads a player's image, scaled to customTexWidth with a
+// height that halves cleanly a few times. It also returns the height that
+// keeps the picture's real shape: the highway draws with that, so rounding
+// the rows doesn't stretch the image.
+func loadCustomTexture(rel string) (*image.RGBA, float64, error) {
 	f, err := os.Open(filepath.Join(HighwayImageDir, filepath.FromSlash(rel)))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer f.Close()
 	img, _, err := image.Decode(f)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	b := img.Bounds()
-	const w = 512
-	h := int(math.Round(float64(b.Dy())*w/float64(b.Dx())/32)) * 32
+	const w = customTexWidth
+	trueH := float64(b.Dy()) * w / float64(b.Dx())
+	h := int(math.Round(trueH/32)) * 32
 	if h < 32 {
 		h = 32
 	}
@@ -283,7 +297,22 @@ func loadCustomTexture(rel string) (*image.RGBA, error) {
 	}
 	dst := image.NewRGBA(image.Rect(0, 0, w, h))
 	xdraw.CatmullRom.Scale(dst, dst.Bounds(), img, b, xdraw.Src, nil)
-	return dst, nil
+	return dst, trueH, nil
+}
+
+// mipAtlas lays the levels out for the shader: level 0 at the left and the
+// rest stacked in a column beside it (see texShaderSrc).
+func mipAtlas(levels []*image.RGBA) *image.RGBA {
+	b := levels[0].Bounds()
+	w, h := b.Dx(), b.Dy()
+	out := image.NewRGBA(image.Rect(0, 0, w+w/2, h))
+	xdraw.Copy(out, image.Point{}, levels[0], b, xdraw.Src, nil)
+	y := 0
+	for _, lv := range levels[1:] {
+		xdraw.Copy(out, image.Pt(w, y), lv, lv.Bounds(), xdraw.Src, nil)
+		y += lv.Bounds().Dy()
+	}
+	return out
 }
 
 // halve box-filters an image to half size (wrapping, so tiles stay tileable).
@@ -308,34 +337,108 @@ func halve(src *image.RGBA) *image.RGBA {
 	return dst
 }
 
-// HighwayLength is how long the visible highway is, in highway widths; it
-// sets how a texture's height maps onto the board.
-const HighwayLength = 3.2
+// texLength is how long the board is in highway widths, worked out from the
+// highway's shape: at the strike line a texel covers as many pixels along
+// the board as across it, so a tile keeps its proportions there whatever the
+// width, angle and length settings are.
+func (h *Highway) texLength() float64 {
+	l := (h.Cfg.StrikeY - h.horizon()) / (h.Cfg.NearWidth * h.far())
+	return math.Max(1, math.Min(20, l))
+}
 
-var texOpts = &ebiten.DrawTrianglesOptions{Filter: ebiten.FilterLinear, Address: ebiten.AddressRepeat, DisableMipmaps: true}
+// texShaderSrc paints the texture with true perspective: every pixel works
+// out its own place on the board, which plain triangles can't do (they bend
+// the picture along their edges). It blends mip levels the same way. custom
+// holds the pixel's position on the highway's own target.
+const texShaderSrc = `//kage:unit pixels
+package main
+
+var Horizon, Strike, Far, CenterX, NearWidth float
+var Rows, Scroll, TexW, TexH, MaxLevel, ZMin float
+
+func texel(x, y, ox, oy, lw, lh float) vec4 {
+	return imageSrc0UnsafeAt(imageSrc0Origin() + vec2(ox+mod(x, lw)+0.5, oy+mod(y, lh)+0.5))
+}
+
+// level samples mip level lv at u (0..1 across) and v (level 0 rows).
+func level(u, v, lv float) vec4 {
+	k := pow(2, lv)
+	lw := TexW / k
+	lh := TexH / k
+	ox := 0.0
+	oy := 0.0
+	if lv > 0.5 {
+		ox = TexW
+		oy = TexH * (1 - 2/k)
+	}
+	px := u*lw - 0.5
+	py := v/k - 0.5
+	fx := floor(px)
+	fy := floor(py)
+	a := px - fx
+	b := py - fy
+	top := mix(texel(fx, fy, ox, oy, lw, lh), texel(fx+1, fy, ox, oy, lw, lh), a)
+	bot := mix(texel(fx, fy+1, ox, oy, lw, lh), texel(fx+1, fy+1, ox, oy, lw, lh), a)
+	return mix(top, bot, b)
+}
+
+func Fragment(dst vec4, src vec2, color vec4, custom vec4) vec4 {
+	s := (custom.y - Horizon) / (Strike - Horizon)
+	z := Far/s - Far
+	u := (custom.x-CenterX)/(NearWidth*s) + 0.5
+	v := Scroll + z*Rows
+	across := TexW / (NearWidth * s)
+	along := Rows * Far / (s * s * (Strike - Horizon))
+	lod := clamp(log2(max(across, along*0.75)), 0, MaxLevel)
+	l0 := floor(lod)
+	c := level(u, v, l0)
+	if lod > l0 {
+		c = mix(c, level(u, v, l0+1), lod-l0)
+	}
+	fade := 1.0
+	if z > 0.86 {
+		fade = max(0, (1-z)/0.14)
+	}
+	if z < 0 {
+		fade = max(0, 1-z/ZMin)
+	}
+	return c * color * fade
+}
+`
+
+var (
+	texShaderOnce sync.Once
+	texShader     *ebiten.Shader
+)
+
+func textureShader() *ebiten.Shader {
+	texShaderOnce.Do(func() {
+		s, err := ebiten.NewShader([]byte(texShaderSrc))
+		if err != nil {
+			log.Printf("highway texture shader: %v", err)
+			return
+		}
+		texShader = s
+	})
+	return texShader
+}
 
 // drawTexture paints the texture over the highway surface between zMin
 // and the far end. surf is the surface color (already tinted for star
-// power) and alpha the strength times the highway's opacity.
-func (h *Highway) drawTexture(dst *ebiten.Image, tex *hwTexture, lanes int, now float64, surf, beat, sp color.RGBA, spOn bool, alpha float64) {
-	if tex == nil || alpha <= 0 || len(tex.levels) == 0 {
+// power), alpha the strength times the highway's opacity and length
+// texLength from before any highway bounce.
+func (h *Highway) drawTexture(dst *ebiten.Image, tex *hwTexture, lanes int, now, length float64, surf, beat, sp color.RGBA, spOn bool, alpha float64) {
+	if tex == nil || alpha <= 0 || tex.atlas == nil {
 		return
 	}
-	// Strips evenly spaced on screen (perspective makes texture
-	// interpolation wrong inside each one; thin strips hide it), split
-	// at the lane lines so each piece is a near-rectangle.
-	const strips = 56
-	yNear, yFar := h.Y(zMin), h.Y(1)
-	hz := h.horizon()
-	zOf := func(y float64) float64 {
-		s := (y - hz) / (h.Cfg.StrikeY - hz)
-		d := h.far()
-		return d/s - d
+	shader := textureShader()
+	if shader == nil {
+		return
 	}
-	// Texture rows per unit of depth: one tile is (h/w) highway widths long.
-	rowsPerZ := HighwayLength * tex.w // a tile spans the highway's width; texels are square on the board
+	// A tile spans the highway's width; the rows are spread to the picture's
+	// real height so it isn't stretched by the rounding when it was loaded.
+	rowsPerZ := length * tex.w * tex.h / tex.trueH
 	scroll := math.Mod(now/h.Cfg.Lookahead*rowsPerZ, tex.h)
-	v := func(z float64) float64 { return scroll + z*rowsPerZ }
 
 	var tint color.RGBA
 	switch tex.kind {
@@ -349,64 +452,19 @@ func (h *Highway) drawTexture(dst *ebiten.Image, tex *hwTexture, lanes int, now 
 		tint.A = 0xFF
 	}
 
-	type piece struct {
-		v []ebiten.Vertex
-		i []uint16
+	c := premulRGBA(tint, alpha)
+	x0n, x1n, yn := h.X(0, lanes, zMin), h.X(float64(lanes), lanes, zMin), h.Y(zMin)
+	x0f, x1f, yf := h.X(0, lanes, 1), h.X(float64(lanes), lanes, 1), h.Y(1)
+	vs := []ebiten.Vertex{texVtx(x0n, yn, c), texVtx(x1n, yn, c), texVtx(x1f, yf, c), texVtx(x0f, yf, c)}
+	op := &ebiten.DrawTrianglesShaderOptions{}
+	op.Images[0] = tex.atlas
+	op.Uniforms = map[string]any{
+		"Horizon": float32(h.horizon()), "Strike": float32(h.Cfg.StrikeY), "Far": float32(h.far()),
+		"CenterX": float32(h.Cfg.CenterX), "NearWidth": float32(h.Cfg.NearWidth),
+		"Rows": float32(rowsPerZ), "Scroll": float32(scroll), "TexW": float32(tex.w), "TexH": float32(tex.h),
+		"MaxLevel": float32(tex.levels - 1), "ZMin": float32(zMin),
 	}
-	per := make([]piece, len(tex.levels))
-	cols := lanes
-	if cols < 4 {
-		cols = 4
-	}
-	for s := 0; s < strips; s++ {
-		y0 := yNear + (yFar-yNear)*float64(s)/strips
-		y1 := yNear + (yFar-yNear)*float64(s+1)/strips
-		z0, z1 := zOf(y0), zOf(y1)
-		if s == 0 {
-			z0 = zMin
-		}
-		if s == strips-1 {
-			z1 = 1
-		}
-		y0, y1 = h.Y(z0), h.Y(z1)
-		a0 := alpha * fadeFar(z0) * fadePast(z0)
-		a1 := alpha * fadeFar(z1) * fadePast(z1)
-		if a0 <= 0 && a1 <= 0 {
-			continue
-		}
-		// Pick the level from how many texels land on a screen pixel,
-		// across and along the highway (along is usually the squashed one).
-		zm := (z0 + z1) / 2
-		across := tex.w / (h.X(float64(lanes), lanes, zm) - h.X(0, lanes, zm))
-		along := (v(z1) - v(z0)) / math.Max(0.5, y0-y1)
-		lod := math.Log2(math.Max(across, along*0.75))
-		lv := 0
-		if !math.IsNaN(lod) && lod > 0 {
-			lv = int(math.Floor(lod + 0.15))
-		}
-		if lv < 0 || lv >= len(tex.levels) {
-			lv = len(tex.levels) - 1
-		}
-		k := 1 / math.Pow(2, float64(lv))
-		c0, c1 := premulRGBA(tint, a0), premulRGBA(tint, a1)
-		p := &per[lv]
-		for c := 0; c < cols; c++ {
-			p0, p1 := float64(c)*float64(lanes)/float64(cols), float64(c+1)*float64(lanes)/float64(cols)
-			u0, u1 := p0/float64(lanes)*tex.w*k, p1/float64(lanes)*tex.w*k
-			base := uint16(len(p.v))
-			p.v = append(p.v,
-				texVtx(h.X(p0, lanes, z0), y0, u0, v(z0)*k, c0),
-				texVtx(h.X(p1, lanes, z0), y0, u1, v(z0)*k, c0),
-				texVtx(h.X(p1, lanes, z1), y1, u1, v(z1)*k, c1),
-				texVtx(h.X(p0, lanes, z1), y1, u0, v(z1)*k, c1))
-			p.i = append(p.i, base, base+1, base+2, base, base+2, base+3)
-		}
-	}
-	for lv, p := range per {
-		if len(p.i) > 0 {
-			dst.DrawTriangles(p.v, p.i, tex.levels[lv], texOpts)
-		}
-	}
+	dst.DrawTrianglesShader(vs, []uint16{0, 1, 2, 0, 2, 3}, shader, op)
 	// Wood keeps its own colors, so star power tints it on top.
 	if spOn && tex.kind == texColor {
 		var b Batch
@@ -428,9 +486,9 @@ func premulRGBA(c color.RGBA, a float64) color.RGBA {
 	return color.RGBA{uint8(float64(c.R) * a), uint8(float64(c.G) * a), uint8(float64(c.B) * a), uint8(255 * a)}
 }
 
-func texVtx(x, y, sx, sy float64, c color.RGBA) ebiten.Vertex {
+func texVtx(x, y float64, c color.RGBA) ebiten.Vertex {
 	return ebiten.Vertex{
-		DstX: float32(x), DstY: float32(y), SrcX: float32(sx), SrcY: float32(sy),
+		DstX: float32(x), DstY: float32(y), Custom0: float32(x), Custom1: float32(y),
 		ColorR: float32(c.R) / 255, ColorG: float32(c.G) / 255, ColorB: float32(c.B) / 255, ColorA: float32(c.A) / 255,
 	}
 }

@@ -33,8 +33,9 @@ type Settings struct {
 	LastSong       string               `json:"last_song,omitempty"`
 	LastInstrument string               `json:"last_instrument,omitempty"`
 	LastDifficulty string               `json:"last_difficulty,omitempty"`
-	LeadIn         float64              `json:"lead_in"` // seconds before the first note
-	HitFx          string               `json:"hit_fx"`  // hit effects: full, reduced, off
+	LeadIn         float64              `json:"lead_in"`      // the count-in: seconds before the song starts
+	HitFx          string               `json:"hit_fx"`       // hit effects: full, reduced, off
+	InputViewer    string               `json:"input_viewer"` // what each player is pressing: "" or on, off
 	ShowLyrics     bool                 `json:"show_lyrics"`
 	BackingVocals  string               `json:"backing_vocals"`     // harmony/backing parts: below, above, off
 	BackingSize    float64              `json:"backing_vocal_size"` // relative to the lead's text
@@ -84,6 +85,7 @@ type PlayerSettings struct {
 	MuteOnMiss     bool                 `json:"mute_on_miss"`
 	HitFx          string               `json:"hit_fx"`
 	HighwayBounce  float64              `json:"highway_bounce"`
+	InputViewer    string               `json:"input_viewer,omitempty"`
 	LastInstrument string               `json:"last_instrument,omitempty"`
 	LastDifficulty string               `json:"last_difficulty,omitempty"`
 }
@@ -93,7 +95,7 @@ func (s *Settings) Player() PlayerSettings {
 	return PlayerSettings{
 		Engine: s.Engine, Highway: s.Highway, AudioOffsetMs: s.AudioOffsetMs, VideoOffsetMs: s.VideoOffsetMs,
 		ErrorSounds: s.ErrorSounds, ErrorVolume: s.ErrorVolume, ShowTiming: s.ShowTiming, MuteOnMiss: s.MuteOnMiss,
-		HitFx: s.HitFx, HighwayBounce: s.HighwayBounce, LastInstrument: s.LastInstrument, LastDifficulty: s.LastDifficulty,
+		HitFx: s.HitFx, HighwayBounce: s.HighwayBounce, InputViewer: s.InputViewer, LastInstrument: s.LastInstrument, LastDifficulty: s.LastDifficulty,
 	}
 }
 
@@ -103,6 +105,7 @@ func (s *Settings) SetPlayer(p PlayerSettings) {
 	s.Engine, s.Highway, s.AudioOffsetMs, s.VideoOffsetMs = p.Engine, p.Highway, p.AudioOffsetMs, p.VideoOffsetMs
 	s.ErrorSounds, s.ErrorVolume, s.ShowTiming, s.MuteOnMiss = p.ErrorSounds, p.ErrorVolume, p.ShowTiming, p.MuteOnMiss
 	s.HitFx, s.HighwayBounce, s.LastInstrument, s.LastDifficulty = p.HitFx, p.HighwayBounce, p.LastInstrument, p.LastDifficulty
+	s.InputViewer = p.InputViewer
 }
 
 // ForPlayer returns a copy of the settings with a player's own part in
@@ -113,6 +116,9 @@ func (s *Settings) ForPlayer(p PlayerSettings) *Settings {
 	c.SetPlayer(p)
 	return &c
 }
+
+// ShowInputs reports whether the input viewer is on (it is unless turned off).
+func (s *Settings) ShowInputs() bool { return s.InputViewer != "off" }
 
 // DefaultPlayer is a new player's settings.
 func DefaultPlayer() PlayerSettings { return Default().Player() }
