@@ -86,8 +86,14 @@ func (mi *MenuInput) Feed(evs []RawEvent, now float64) []action.Action {
 			continue
 		}
 		buf = mi.guitar.Map(e, buf[:0])
+		// A control with its own menu binding means only that in menus: a
+		// d-pad left that's also Select moves left, it doesn't go back.
+		own := false
 		for _, m := range buf {
-			if a, ok := guitarMenu[m.Action]; ok {
+			own = own || m.Action.IsMenu()
+		}
+		for _, m := range buf {
+			if a, ok := guitarMenu[m.Action]; ok && !own {
 				press(a, m.Down, m.Time)
 			} else if m.Action.IsMenu() {
 				press(m.Action, m.Down, m.Time)

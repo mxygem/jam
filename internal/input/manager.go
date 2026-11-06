@@ -2,6 +2,7 @@ package input
 
 import (
 	"fmt"
+	"log"
 	"runtime"
 	"sort"
 	"strings"
@@ -148,6 +149,9 @@ func (m *Manager) pollPads(dst []RawEvent, now float64) []RawEvent {
 			name := ebiten.GamepadName(id)
 			p = &padState{name: name}
 			m.pads[id] = p
+			if !m.skipPad(name) {
+				log.Printf("controller: gamepad %d connected: %q", id, name)
+			}
 		}
 		if m.skipPad(p.name) {
 			continue
@@ -185,10 +189,16 @@ func (m *Manager) pollPads(dst []RawEvent, now float64) []RawEvent {
 			}
 		}
 	}
-	for id := range m.pads {
-		if !seen[id] {
-			delete(m.pads, id)
+	for id, p := range m.pads {
+		if seen[id] {
+			continue
 		}
+		delete(m.pads, id)
+		if m.skipPad(p.name) {
+			continue
+		}
+		log.Printf("controller: gamepad %d (%q) disconnected", id, p.name)
+		dst = append(dst, padReleases(int(id), p, now)...)
 	}
 	return dst
 }
@@ -309,4 +319,15 @@ func (m *Manager) Describe(e RawEvent) string {
 		state = "down"
 	}
 	return fmt.Sprintf("%s: %s %s", dev, name, state)
+}
+
+// padReleases lets go of every button a gamepad that went away was holding.
+func padReleases(id int, p *padState, now float64) []RawEvent {
+	var out []RawEvent
+	for b, down := range p.buttons {
+		if down {
+			out = append(out, RawEvent{Time: now, Src: SrcGamepad, Device: id, Kind: KindButton, Code: b})
+		}
+	}
+	return out
 }

@@ -4,6 +4,7 @@ package input
 
 import (
 	"fmt"
+	"log"
 	"sync"
 	"syscall"
 	"time"
@@ -77,7 +78,6 @@ func xinputGetCaps(slot int, c *xinputCaps) bool {
 // Button bits in the order events are emitted for a single poll: frets and
 // face buttons before the d-pad, so a chord change and a strum that land in
 // the same report are seen frets-first.
-var xinputBitOrder = []int{12, 13, 14, 15, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 10, 11}
 
 type xinputPoller struct {
 	emit func(RawEvent)
@@ -85,6 +85,7 @@ type xinputPoller struct {
 
 	mu        sync.Mutex
 	connected [4]bool
+	seen      [4]bool // connected at some point, for noticing a mode change
 	caps      [4]xinputCaps
 	axes      [4][6]float32
 	buttons   [4]uint16
@@ -137,9 +138,18 @@ func (p *xinputPoller) run() {
 			t := clock.Now()
 			if !ok {
 				if conn {
+					// Let go of everything it was holding, or a fret held
+					// when it dropped stays down until the game restarts.
 					p.mu.Lock()
 					p.connected[slot] = false
+					held := p.buttons[slot]
+					p.buttons[slot] = 0
+					st := p.caps[slot].SubType
 					p.mu.Unlock()
+					log.Printf("controller: XInput #%d (%s) disconnected%s", slot+1, subtypeName(st), heldNote(held))
+					for _, e := range xinputButtonEvents(slot, held, 0, t) {
+						p.emit(e)
+					}
 				}
 				nextScan[slot] = now + 1
 				continue
@@ -149,10 +159,21 @@ func (p *xinputPoller) run() {
 				xinputGetCaps(slot, &c)
 				p.mu.Lock()
 				p.connected[slot] = true
+				prevSub, seen := p.caps[slot].SubType, p.seen[slot]
+				p.seen[slot] = true
 				p.caps[slot] = c
 				p.buttons[slot] = st.Gamepad.Buttons
 				p.axes[slot] = axisValues(st.Gamepad)
 				p.mu.Unlock()
+				msg := fmt.Sprintf("controller: XInput #%d connected: %s (subtype 0x%02X)", slot+1, subtypeName(c.SubType), c.SubType)
+				if seen && prevSub != c.SubType {
+					msg += fmt.Sprintf(", was %s (0x%02X) last time", subtypeName(prevSub), prevSub)
+				}
+				log.Print(msg + heldNote(st.Gamepad.Buttons))
+				// Buttons already down count as pressed now.
+				for _, e := range xinputButtonEvents(slot, 0, st.Gamepad.Buttons, t) {
+					p.emit(e)
+				}
 				continue
 			}
 			p.mu.Lock()
@@ -162,18 +183,8 @@ func (p *xinputPoller) run() {
 			p.buttons[slot] = st.Gamepad.Buttons
 			p.axes[slot] = newA
 			p.mu.Unlock()
-			if diff := prevB ^ st.Gamepad.Buttons; diff != 0 {
-				for _, bit := range xinputBitOrder {
-					if diff&(1<<bit) == 0 {
-						continue
-					}
-					down := st.Gamepad.Buttons&(1<<bit) != 0
-					v := float32(0)
-					if down {
-						v = 1
-					}
-					p.emit(RawEvent{Time: t, Src: SrcXInput, Device: slot, Kind: KindButton, Code: bit, Value: v, Down: down})
-				}
+			for _, e := range xinputButtonEvents(slot, prevB, st.Gamepad.Buttons, t) {
+				p.emit(e)
 			}
 			for i := 0; i < 6; i++ {
 				d := newA[i] - prevA[i]
@@ -192,30 +203,6 @@ func (p *xinputPoller) run() {
 		}
 		time.Sleep(time.Millisecond)
 	}
-}
-
-func subtypeName(st uint8) string {
-	switch st {
-	case 0x01:
-		return "gamepad"
-	case 0x02:
-		return "wheel"
-	case 0x03:
-		return "arcade stick"
-	case 0x04:
-		return "flight stick"
-	case 0x05:
-		return "dance pad"
-	case 0x06, 0x07:
-		return "guitar"
-	case 0x08:
-		return "drum kit"
-	case 0x0B:
-		return "bass guitar"
-	case 0x13:
-		return "arcade pad"
-	}
-	return fmt.Sprintf("subtype 0x%02X", st)
 }
 
 func (p *xinputPoller) Devices() []DeviceInfo {
