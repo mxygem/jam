@@ -321,6 +321,8 @@ func newSettingsMenu(a *App, inSong bool) *settingsMenu {
 			Item{Label: "Remove a song folder...", Hint: "Pick a folder to take out of the library. Its files stay on disk",
 				Activate: func() { m.openFolders(a) }},
 			Item{Label: "Rescan library", Activate: func() { a.RescanLibrary(); a.Toast("Rescanning library...") }},
+			Item{Label: "Single player HUD layout...", Hint: "Drag the score, streak, multiplier, star power, title card, progress bar, lyrics and more where you want them",
+				Activate: func() { a.SetScene(NewSoloHUDLayoutEditor(a, func() { a.SetScene(NewSettingsAt(a, pageLibrary)) })) }},
 			Item{Label: "Multiplayer HUD layout...", Hint: "Drag the name, score, multiplier, streak, star power and rock meter where you want them on every highway",
 				Activate: func() { a.SetScene(NewHUDLayoutEditor(a, func() { a.SetScene(NewSettingsAt(a, pageLibrary)) })) }},
 		)

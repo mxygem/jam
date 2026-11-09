@@ -13,15 +13,19 @@ import (
 	"github.com/mxygem/jam/internal/render"
 )
 
-// HUDLayoutEditor arranges the multiplayer scoreboard: a band screen plays
-// the preview chart and every item on it (name, score, multiplier, streak,
-// star power, rock meter, messages) can be dragged with the mouse, nudged
-// with arrows or a guitar, hidden, or (star power) turned on its side.
-// Every highway shares the layout. Esc / red saves and goes back.
+// HUDLayoutEditor arranges a scoreboard: the screen plays the preview chart
+// and every item on it can be dragged with the mouse, nudged with arrows or
+// a guitar, hidden, or (star power) turned on its side. For multiplayer that
+// is a band screen where every highway shares the layout (name, score,
+// multiplier, streak, star power, rock meter, messages); for single player
+// it is the song screen with its fuller set of items. Esc / red saves and
+// goes back.
 type HUDLayoutEditor struct {
+	solo    bool
+	items   []hudItem
 	layout  render.HUDLayout
 	players int
-	sel     int // index into render.HUDItems
+	sel     int // index into items
 	pv      *lookPreview
 	seats   []*hudSeat
 	slots   []slot
@@ -36,12 +40,46 @@ type HUDLayoutEditor struct {
 	back    func()
 }
 
+type hudItem = struct{ ID, Label string }
+
 type hudSeat struct {
 	view *ebiten.Image
 	hw   render.Highway
 	hud  render.SeatHUD
+	solo render.HUD
 	hc   render.HighwayConfig
 	vw   float64
+}
+
+// boxes is where the seat's items were last drawn.
+func (s *hudSeat) boxes(e *HUDLayoutEditor) map[string]render.Box {
+	if e.solo {
+		return s.solo.Boxes
+	}
+	return s.hud.Boxes
+}
+
+// dxUnit is what a place's DX is a fraction of.
+func (e *HUDLayoutEditor) dxUnit(s *hudSeat) float64 {
+	if e.solo {
+		return render.ScreenW
+	}
+	return s.hc.NearWidth
+}
+
+// moveBox is what has to stay in view when id moves: the score panel takes
+// what's on it along.
+func (e *HUDLayoutEditor) moveBox(s *hudSeat, id string) render.Box {
+	boxes := s.boxes(e)
+	b := boxes[id]
+	if e.solo && id == render.HUDPanel {
+		for _, c := range []string{render.HUDScore, render.HUDStreak, render.HUDRock} {
+			if o, ok := boxes[c]; ok {
+				b = b.Union(o)
+			}
+		}
+	}
+	return b
 }
 
 type hudButton struct {
@@ -55,13 +93,20 @@ const hudTop = 112.0 // the editor's bar; band play's is shorter, items scale wi
 
 // NewHUDLayoutEditor opens the editor; back runs when it closes.
 func NewHUDLayoutEditor(a *App, back func()) *HUDLayoutEditor {
-	e := &HUDLayoutEditor{layout: a.Settings.SeatHUD.Clone(), players: 2, pv: newLookPreview(false), back: back}
+	e := &HUDLayoutEditor{items: render.HUDItems, layout: a.Settings.SeatHUD.Clone(), players: 2, pv: newLookPreview(false), back: back}
 	e.sel = e.itemIndex(render.HUDStarPower)
 	return e
 }
 
+// NewSoloHUDLayoutEditor opens the editor on the single player HUD.
+func NewSoloHUDLayoutEditor(a *App, back func()) *HUDLayoutEditor {
+	e := &HUDLayoutEditor{solo: true, items: render.SoloHUDItems, layout: a.Settings.SoloHUD.Clone(), players: 1, pv: newLookPreview(false), back: back}
+	e.sel = e.itemIndex(render.HUDPanel)
+	return e
+}
+
 func (e *HUDLayoutEditor) itemIndex(id string) int {
-	for i, it := range render.HUDItems {
+	for i, it := range e.items {
 		if it.ID == id {
 			return i
 		}
@@ -69,9 +114,12 @@ func (e *HUDLayoutEditor) itemIndex(id string) int {
 	return 0
 }
 
-func (e *HUDLayoutEditor) selID() string { return render.HUDItems[e.sel].ID }
+func (e *HUDLayoutEditor) selID() string { return e.items[e.sel].ID }
 
 func (e *HUDLayoutEditor) setPlayers(n int) {
+	if e.solo {
+		return
+	}
 	e.players = max(1, min(8, n))
 	e.drag = false
 }
@@ -85,7 +133,11 @@ func (e *HUDLayoutEditor) toggleHidden() {
 
 func (e *HUDLayoutEditor) turnMeter() {
 	p := e.layout.Get(render.HUDStarPower)
-	p.Horizontal = !p.Horizontal
+	if e.solo {
+		p.Vertical = !p.Vertical
+	} else {
+		p.Horizontal = !p.Horizontal
+	}
 	// The two shapes have different default spots: start the new one there.
 	p.DX, p.DY = 0, 0
 	e.layout.Set(render.HUDStarPower, p)
@@ -95,18 +147,23 @@ func (e *HUDLayoutEditor) turnMeter() {
 func (e *HUDLayoutEditor) resetItem() {
 	id := e.selID()
 	p := e.layout.Get(id)
-	e.layout.Set(id, render.HUDPlace{Horizontal: p.Horizontal})
+	e.layout.Set(id, render.HUDPlace{Horizontal: p.Horizontal, Vertical: p.Vertical})
 }
 
 func (e *HUDLayoutEditor) resetAll() { e.layout = render.HUDLayout{} }
 
 func (e *HUDLayoutEditor) done(a *App) {
-	a.Settings.SeatHUD = e.layout
-	if len(e.layout) == 0 {
-		a.Settings.SeatHUD = nil
+	saved := e.layout
+	if len(saved) == 0 {
+		saved = nil
+	}
+	if e.solo {
+		a.Settings.SoloHUD = saved
+	} else {
+		a.Settings.SeatHUD = saved
 	}
 	_ = a.Settings.Save()
-	a.Toast("Multiplayer HUD layout saved")
+	a.Toast(e.title() + " saved")
 	e.back()
 }
 
@@ -119,13 +176,21 @@ func (e *HUDLayoutEditor) nudge(dx, dy float64) {
 	s := e.seats[0]
 	id := e.selID()
 	p := e.layout.Get(id)
-	if b, ok := s.hud.Boxes[id]; ok {
+	if _, ok := s.boxes(e)[id]; ok {
+		b := e.moveBox(s, id)
 		dx = math.Max(-b.X, math.Min(s.vw-b.X-b.W, dx))
 		dy = math.Max(-b.Y, math.Min(render.SeatH-b.Y-b.H, dy))
 	}
-	p.DX += dx / s.hc.NearWidth
+	p.DX += dx / e.dxUnit(s)
 	p.DY += dy / render.SeatH
-	e.layout.Set(id, snapPlace(p, s.hc.NearWidth))
+	e.layout.Set(id, snapPlace(p, e.dxUnit(s)))
+}
+
+func (e *HUDLayoutEditor) title() string {
+	if e.solo {
+		return "Single player HUD layout"
+	}
+	return "Multiplayer HUD layout"
 }
 
 // snapPlace pulls an item back onto its default spot when it's close.
@@ -205,7 +270,7 @@ func (e *HUDLayoutEditor) Update(a *App) error {
 		case action.MenuRight:
 			e.nudge(step, 0)
 		case action.MenuOptions:
-			n := len(render.HUDItems)
+			n := len(e.items)
 			if shift {
 				e.sel = (e.sel + n - 1) % n
 			} else {
@@ -227,8 +292,8 @@ func (e *HUDLayoutEditor) pick(x, y float64) {
 	for i := range e.seats {
 		sx, sy := e.toSeat(i, x, y)
 		best, area := "", math.Inf(1)
-		for _, it := range render.HUDItems {
-			b, ok := e.seats[i].hud.Boxes[it.ID]
+		for _, it := range e.items {
+			b, ok := e.seats[i].boxes(e)[it.ID]
 			if !ok || !b.Contains(sx, sy, 6) {
 				continue
 			}
@@ -241,7 +306,7 @@ func (e *HUDLayoutEditor) pick(x, y float64) {
 			e.drag, e.dragSeat = true, i
 			e.dragFrom = [2]float64{sx, sy}
 			e.dragPlace = e.layout.Get(best)
-			e.dragBox = e.seats[i].hud.Boxes[best]
+			e.dragBox = e.moveBox(e.seats[i], best)
 			return
 		}
 	}
@@ -259,14 +324,14 @@ func (e *HUDLayoutEditor) dragTo(x, y float64) {
 	dx = math.Max(-b.X, math.Min(s.vw-b.X-b.W, dx))
 	dy = math.Max(-b.Y, math.Min(render.SeatH-b.Y-b.H, dy))
 	p := e.dragPlace
-	p.DX += dx / s.hc.NearWidth
+	p.DX += dx / e.dxUnit(s)
 	p.DY += dy / render.SeatH
-	e.layout.Set(e.selID(), snapPlace(p, s.hc.NearWidth))
+	e.layout.Set(e.selID(), snapPlace(p, e.dxUnit(s)))
 }
 
 func (e *HUDLayoutEditor) layoutButtons(a *App) {
 	meter := "Turn meter sideways (R)"
-	if e.layout.Get(render.HUDStarPower).Horizontal {
+	if sp := e.layout.Get(render.HUDStarPower); sp.Horizontal || e.solo && !sp.Vertical {
 		meter = "Stand meter up (R)"
 	}
 	hide := "Hide (H)"
@@ -286,6 +351,9 @@ func (e *HUDLayoutEditor) layoutButtons(a *App) {
 		{"Reset all", e.resetAll},
 		{"Done (Esc)", func() { e.done(a) }},
 	}
+	if e.solo {
+		labels = labels[3:]
+	}
 	e.buttons = e.buttons[:0]
 	x := float64(render.ScreenW) - 24
 	size := 24.0
@@ -304,7 +372,11 @@ func (e *HUDLayoutEditor) layoutButtons(a *App) {
 
 func (e *HUDLayoutEditor) Draw(dst *ebiten.Image, a *App) {
 	render.Background(dst, e.pv.frame.Now, false)
-	e.slots = bandSlots(e.players, a.Settings.Multi.Layout, hudTop)
+	if e.solo {
+		e.slots = []slot{{0, hudTop, render.ScreenW, render.ScreenH - hudTop}}
+	} else {
+		e.slots = bandSlots(e.players, a.Settings.Multi.Layout, hudTop)
+	}
 	for len(e.seats) < len(e.slots) {
 		e.seats = append(e.seats, &hudSeat{})
 	}
@@ -315,9 +387,9 @@ func (e *HUDLayoutEditor) Draw(dst *ebiten.Image, a *App) {
 
 	// top bar
 	render.FillRect(dst, 0, 0, render.ScreenW, hudTop, render.WithAlpha(th.Panel, 0.94))
-	render.Text(dst, "Multiplayer HUD layout", render.Display, 40, 32, 12, th.Text, render.Left)
+	render.Text(dst, e.title(), render.Display, 40, 32, 12, th.Text, render.Left)
 	help := fmt.Sprintf("Editing: %s.  Drag with the mouse, or Tab / yellow to pick and arrows / strum + blue/orange to nudge (Shift: faster).",
-		render.HUDItems[e.sel].Label)
+		e.items[e.sel].Label)
 	render.Text(dst, help, render.UI, 22, 34, 74, th.TextDim, render.Left)
 	for _, b := range e.buttons {
 		hot := a.Mouse.In(b.x, b.y, b.w, b.h)
@@ -335,6 +407,9 @@ var hudSampleNames = []string{"Gem", "Player 2", "Player 3", "Player 4", "Player
 func (e *HUDLayoutEditor) drawSeat(dst *ebiten.Image, a *App, i int, sl slot) {
 	s := e.seats[i]
 	vw := math.Max(200, math.Round(sl.w*render.SeatH/sl.h))
+	if e.solo {
+		vw = render.ScreenW
+	}
 	if s.view == nil || s.view.Bounds().Dx() != int(vw) {
 		if s.view != nil {
 			s.view.Deallocate()
@@ -344,6 +419,12 @@ func (e *HUDLayoutEditor) drawSeat(dst *ebiten.Image, a *App, i int, sl slot) {
 	s.vw = vw
 	v := s.view
 	v.Clear()
+	if e.solo {
+		e.drawSolo(a, s)
+		e.drawOutlines(v, s, 0, 1)
+		e.present(dst, s, sl)
+		return
+	}
 	s.hc = render.SeatHighway(a.Settings.Highway, vw)
 	s.hw.Cfg = s.hc
 	f := e.pv.frame
@@ -364,10 +445,43 @@ func (e *HUDLayoutEditor) drawSeat(dst *ebiten.Image, a *App, i int, sl slot) {
 	s.hud.ShowHidden = true
 	s.hud.Draw(v, s.hc, &hs, &info)
 
-	// outlines: every item faint, the one being edited bright, hidden ones crossed out
-	k := math.Min(1.25, math.Max(0.45, s.hc.NearWidth/440))
-	for idx, it := range render.HUDItems {
-		b, ok := s.hud.Boxes[it.ID]
+	e.drawOutlines(v, s, i, math.Min(1.25, math.Max(0.45, s.hc.NearWidth/440)))
+	e.present(dst, s, sl)
+}
+
+// drawSolo draws the song screen with every item showing, including the
+// ones that normally only appear for a moment.
+func (e *HUDLayoutEditor) drawSolo(a *App, s *hudSeat) {
+	f := e.pv.frame
+	hs := e.pv.hs
+	hs.Score = hs.Score*2 + 123456
+	hs.Messages = []render.Message{{Text: "SOLO!", Color: th.Accent, At: hs.Now - 0.5}}
+	hs.SPEnergy = 0.62
+	hs.Rock = 0.7
+	hs.TitleAlpha = 1
+	hs.Title, hs.Artist, hs.Charter = "Song title", "Artist", "Charter"
+	hs.Section, hs.SectionAt = "Section name", hs.Now-1
+	hs.ShowTiming, hs.LastHitAt, hs.LastOffset = true, hs.Now-0.1, 12
+	s.hc = a.Settings.Highway
+	s.hw.Cfg = s.hc
+	s.solo.Highway = &s.hw
+	s.solo.Layout = e.layout
+	s.solo.ShowHidden = true
+	s.solo.Inputs, s.solo.InputsAt = hudSampleInputs, f.Now
+	render.Offscreen(func() {
+		render.Background(s.view, f.Now, f.SPActive)
+		s.hw.Draw(s.view, &f)
+		s.solo.Draw(s.view, &hs)
+	})
+}
+
+// drawOutlines marks the items: every one faint, the one being edited
+// bright, hidden ones crossed out. k is the highway's text scale; i the
+// seat, whose first gets the name of the selected item.
+func (e *HUDLayoutEditor) drawOutlines(v *ebiten.Image, s *hudSeat, i int, k float64) {
+	boxes := s.boxes(e)
+	for idx, it := range e.items {
+		b, ok := boxes[it.ID]
 		if !ok {
 			continue
 		}
@@ -386,12 +500,15 @@ func (e *HUDLayoutEditor) drawSeat(dst *ebiten.Image, a *App, i int, sl slot) {
 			render.StrokeRect(v, x, y, w, h, 1.5*k, render.WithAlpha(th.Text, 0.35))
 		}
 	}
+}
 
+// present scales the seat's view into its slot.
+func (e *HUDLayoutEditor) present(dst *ebiten.Image, s *hudSeat, sl slot) {
 	sc := sl.h / render.SeatH
 	op := &ebiten.DrawImageOptions{Filter: ebiten.FilterLinear}
 	op.GeoM.Scale(sc, sc)
-	op.GeoM.Translate(sl.x+(sl.w-vw*sc)/2, sl.y)
-	dst.DrawImage(v, op)
+	op.GeoM.Translate(sl.x+(sl.w-s.vw*sc)/2, sl.y)
+	dst.DrawImage(s.view, op)
 }
 
 // hudSampleInputs is an empty input viewer for placing it on the screen.

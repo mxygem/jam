@@ -224,6 +224,7 @@ func (p *lookPreview) update(a *App, now float64) {
 	p.last = t
 	set := a.Settings
 	p.hw.Cfg = set.Highway
+	p.hud.Layout = a.Settings.SoloHUD
 	p.frame.Now = t
 	p.frame.Held = p.held
 	p.frame.Fx = render.ParseFxLevel(set.HitFx)

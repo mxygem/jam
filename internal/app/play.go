@@ -630,7 +630,10 @@ func (p *Play) Draw(dst *ebiten.Image, a *App) {
 	}
 	f.Hits = keep
 	p.hw.Draw(dst, f)
-	p.lyr.Draw(dst, rn, p.hw.Cfg.CenterX, a.frame)
+	if lp := a.Settings.SoloHUD.Get(render.HUDLyrics); p.lyr != nil && !lp.Hidden {
+		p.lyr.Y = render.SoloLyricsY + lp.DY*render.ScreenH
+		p.lyr.Draw(dst, rn, p.hw.Cfg.CenterX+lp.DX*render.ScreenW, a.frame)
+	}
 
 	h := &p.hs
 	h.Now = rn
@@ -660,12 +663,12 @@ func (p *Play) Draw(dst *ebiten.Image, a *App) {
 		h.Section = p.c.Sections[idx].Name
 		h.SectionAt = p.c.Sections[idx].Time
 	}
-	p.hud.Draw(dst, h)
+	p.hud.Layout = a.Settings.SoloHUD
+	p.hud.Inputs, p.hud.InputsAt = nil, rn-p.videoOff
 	if a.Settings.ShowInputs() {
-		// beside the highway, above the score panel
-		_, ih := p.inputs.Size(1, false)
-		p.inputs.Draw(dst, p.hw.Cfg.CenterX-p.hw.Cfg.NearWidth/2-400, p.hw.Cfg.StrikeY-186-ih, 1, false, rn-p.videoOff)
+		p.hud.Inputs = p.inputs
 	}
+	p.hud.Draw(dst, h)
 
 	if p.bot != nil {
 		render.Text(dst, "AUTOPLAY", render.CondBold, 26, render.ScreenW-40, 20, th.TextDim, render.Right)
@@ -746,7 +749,7 @@ func errorSound(mode string, r engine.Result) bool {
 // newLyrics builds the lyric display for the chart, with the beat that lyric
 // effects pulse to.
 func (p *Play) newLyrics(opts render.LyricOpts) *render.Lyrics {
-	l := render.NewLyrics(p.c.Vocals, 64, opts)
+	l := render.NewLyrics(p.c.Vocals, render.SoloLyricsY, opts)
 	if l != nil && p.c.Tempo != nil {
 		tm := p.c.Tempo
 		l.Beat = func(now float64) float64 {

@@ -2,8 +2,8 @@ package render
 
 import "math"
 
-// The multiplayer scoreboard is made of items a player can move, hide and
-// (for the star power meter) turn on its side in the HUD layout editor.
+// The scoreboards are made of items a player can move, hide and (for the
+// star power meter) turn on its side in the HUD layout editor.
 const (
 	HUDName      = "name"       // color dot, name and part (top left)
 	HUDScore     = "score"      // score and head to head rank (top right)
@@ -13,7 +13,18 @@ const (
 	HUDRock      = "rock"       // rock meter
 	HUDMessages  = "messages"   // pop-ups like SOLO! and STAR POWER READY
 	HUDInputs    = "inputs"     // the input viewer
+
+	// Single player only.
+	HUDPanel    = "panel"    // the backdrop behind score, streak and rock meter
+	HUDProgress = "progress" // song progress bar and times
+	HUDTitle    = "title"    // the title card at the start of a song
+	HUDSection  = "section"  // section name
+	HUDTiming   = "timing"   // ms early or late of the last hit
+	HUDLyrics   = "lyrics"
 )
+
+// SoloLyricsY is where single player's lyrics sit by default.
+const SoloLyricsY = 64.0
 
 // HUDItems lists the movable items in the order the editor steps through
 // them, with the names it shows.
@@ -28,21 +39,41 @@ var HUDItems = []struct{ ID, Label string }{
 	{HUDInputs, "Input viewer"},
 }
 
-// HUDPlace is where one item sits relative to its default spot. DX is a
-// fraction of the highway's near width and DY a fraction of the view's
-// height, so a layout fits any number of players.
+// SoloHUDItems is the same list for the single player HUD. Moving the score
+// panel takes the score, streak and rock meter with it.
+var SoloHUDItems = []struct{ ID, Label string }{
+	{HUDPanel, "Score panel"},
+	{HUDScore, "Score"},
+	{HUDStreak, "Streak"},
+	{HUDRock, "Rock meter"},
+	{HUDMult, "Multiplier"},
+	{HUDStarPower, "Star power"},
+	{HUDMessages, "Messages"},
+	{HUDTiming, "Hit timing"},
+	{HUDTitle, "Title card"},
+	{HUDSection, "Section name"},
+	{HUDProgress, "Progress bar"},
+	{HUDLyrics, "Lyrics"},
+	{HUDInputs, "Input viewer"},
+}
+
+// HUDPlace is where one item sits relative to its default spot. In
+// multiplayer DX is a fraction of the highway's near width and DY a fraction
+// of the view's height, so a layout fits any number of players. In single
+// player they are fractions of the canvas.
 type HUDPlace struct {
 	DX         float64 `json:"dx,omitempty"`
 	DY         float64 `json:"dy,omitempty"`
 	Hidden     bool    `json:"hidden,omitempty"`
-	Horizontal bool    `json:"horizontal,omitempty"` // star power: a row of segments instead of a column
+	Horizontal bool    `json:"horizontal,omitempty"` // multiplayer star power: a row of segments instead of a column
+	Vertical   bool    `json:"vertical,omitempty"`   // single player star power: a column of segments instead of a row
 }
 
 // IsDefault reports whether the place is the item's default.
 func (p HUDPlace) IsDefault() bool { return p == HUDPlace{} }
 
-// HUDLayout is the multiplayer scoreboard's layout by item id. Missing
-// items sit at their defaults.
+// HUDLayout is a scoreboard's layout by item id. Missing items sit at their
+// defaults.
 type HUDLayout map[string]HUDPlace
 
 // Get returns an item's place.
@@ -73,6 +104,9 @@ type Box struct{ X, Y, W, H float64 }
 func (b Box) Contains(x, y, pad float64) bool {
 	return x >= b.X-pad && x < b.X+b.W+pad && y >= b.Y-pad && y < b.Y+b.H+pad
 }
+
+// Union is the smallest box covering b and o.
+func (b Box) Union(o Box) Box { return b.union(o) }
 
 // union grows b to cover o.
 func (b Box) union(o Box) Box {

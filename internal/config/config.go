@@ -53,6 +53,8 @@ type Settings struct {
 	// SeatHUD is where the multiplayer scoreboard's items sit (the HUD
 	// layout editor writes it).
 	SeatHUD render.HUDLayout `json:"seat_hud,omitempty"`
+	// SoloHUD is the same for the single player scoreboard.
+	SoloHUD render.HUDLayout `json:"solo_hud,omitempty"`
 	Look    Look             `json:"look"`
 	Multi   Multi            `json:"multiplayer"`
 
