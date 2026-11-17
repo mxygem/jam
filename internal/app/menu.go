@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -74,10 +75,13 @@ func (m *MainMenu) Draw(dst *ebiten.Image, a *App) {
 			render.Text(dst, d.Detail, render.Cond, 22, px+pw-32, y+4, th.TextDim, render.Right)
 		}
 	}
-	songs, scanning := a.Library()
+	songs, scanning, _, found, _ := a.LibraryState()
 	status := plural(len(songs), "song") + " in library"
-	if scanning {
-		status = "Scanning library..."
+	switch {
+	case scanning && len(songs) == 0:
+		status = fmt.Sprintf("Scanning library... %d songs so far", found)
+	case scanning:
+		status += " (checking for changes)"
 	}
 	render.Text(dst, status, render.Cond, 26, px+32, py+90+float64(len(devs))*52+20, th.TextDim, render.Left)
 	if a.FFmpeg == "" {

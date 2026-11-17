@@ -13,6 +13,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -99,12 +100,17 @@ type App struct {
 	// so backing out returns there rather than to the song list.
 	playlistFromMenu bool
 
-	libMu     sync.Mutex
-	library   []*chart.Song
-	byDir     map[string]*chart.Song
-	scanning  bool
-	scanErr   string
-	scanCount int
+	libMu       sync.Mutex
+	library     []*chart.Song
+	byDir       map[string]*chart.Song
+	scanning    bool
+	libCached   bool // the list shown came from the saved scan; a check is running
+	libGen      int  // bumps whenever the list changes
+	rescanAgain bool // a rescan was asked for while one was running
+	scanFound   atomic.Int64
+	songCache   *chart.ScanCache // last scan (only touched by the scan goroutine)
+	scanErr     string
+	scanCount   int
 
 	scene     Scene
 	Mouse     Mouse
@@ -282,36 +288,100 @@ func (a *App) Library() ([]*chart.Song, bool) {
 	return a.library, a.scanning
 }
 
-// RescanLibrary scans the library folders in the background.
+// LibraryState also reports whether the list came from the saved scan
+// (a check for changes is running), how many songs a first scan has found
+// so far, and a generation that changes whenever the list does.
+func (a *App) LibraryState() (songs []*chart.Song, scanning, cached bool, found, gen int) {
+	a.libMu.Lock()
+	defer a.libMu.Unlock()
+	return a.library, a.scanning, a.libCached, int(a.scanFound.Load()), a.libGen
+}
+
+func songCachePath() string { return filepath.Join(config.Dir(), "songs.cache") }
+
+// RescanLibrary scans the library folders in the background. The first
+// time it shows the songs saved by the last scan right away, then checks
+// the folders for changes. A rescan asked for while one is running starts
+// again when it finishes, with the folder list as it is then.
 func (a *App) RescanLibrary() {
 	a.libMu.Lock()
 	if a.scanning {
+		a.rescanAgain = true
 		a.libMu.Unlock()
 		return
 	}
 	a.scanning = true
+	a.libMu.Unlock()
+	go a.scanLoop()
+}
+
+func (a *App) libraryPaths() []string {
+	a.libMu.Lock()
 	paths := append([]string(nil), a.Settings.LibraryPaths...)
 	a.libMu.Unlock()
 	if !contains(paths, config.SongsDir()) {
 		paths = append(paths, config.SongsDir())
 	}
-	go func() {
-		start := time.Now()
-		songs := chart.ScanLibrary(paths)
-		byDir := make(map[string]*chart.Song, len(songs))
-		for _, s := range songs {
-			byDir[dirKey(s.Dir)] = s
+	return paths
+}
+
+func (a *App) setLibrary(songs []*chart.Song, cached bool) {
+	byDir := make(map[string]*chart.Song, len(songs))
+	for _, s := range songs {
+		byDir[dirKey(s.Dir)] = s
+	}
+	a.libMu.Lock()
+	a.library, a.byDir, a.libCached = songs, byDir, cached
+	a.libGen++
+	a.libMu.Unlock()
+}
+
+func (a *App) scanLoop() {
+	for {
+		paths := a.libraryPaths()
+		if a.songCache == nil {
+			t := time.Now()
+			if c := chart.LoadScanCache(songCachePath()); c != nil {
+				a.songCache = c
+				songs := c.SongsUnder(paths)
+				a.setLibrary(songs, true)
+				log.Printf("library: %d songs from the saved scan in %.2fs", len(songs), time.Since(t).Seconds())
+				if a.Index != nil {
+					a.Index.Update(songs)
+				}
+			}
 		}
+		a.scanFound.Store(0)
+		songs, next, st := chart.Scan(paths, a.songCache, &a.scanFound)
+		// The library hash covers every song's folder, root and fingerprint,
+		// so an unchanged hash means the list on screen is already right.
+		if st.Changed {
+			a.setLibrary(songs, false)
+			if err := next.Save(songCachePath()); err != nil {
+				log.Printf("library: save scan: %v", err)
+			}
+			if a.Index != nil {
+				a.Index.Update(songs)
+			}
+		}
+		a.songCache = next
+		changed := "no changes"
+		if st.Changed {
+			changed = "changed"
+		}
+		log.Printf("library: %s, %s (folders: %v)", st, changed, paths)
+
 		a.libMu.Lock()
-		a.library = songs
-		a.byDir = byDir
-		a.scanning = false
-		a.libMu.Unlock()
-		log.Printf("library: %d songs found in %.1fs", len(songs), time.Since(start).Seconds())
-		if a.Index != nil {
-			a.Index.Update(songs)
+		if a.rescanAgain {
+			a.rescanAgain = false
+			a.libMu.Unlock()
+			continue
 		}
-	}()
+		a.scanning, a.libCached = false, false
+		a.libGen++
+		a.libMu.Unlock()
+		return
+	}
 }
 
 func dirKey(dir string) string { return strings.ToLower(filepath.Clean(dir)) }

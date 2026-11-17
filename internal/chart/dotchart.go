@@ -34,7 +34,7 @@ type dotChartFile struct {
 func readDotChart(r io.Reader) (*dotChartFile, error) {
 	f := &dotChartFile{sections: map[string][]chartEvent{}, named: map[string]map[string]string{}}
 	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 256*1024), 16*1024*1024)
+	sc.Buffer(make([]byte, 0, 16*1024), 16*1024*1024)
 	section := ""
 	first := true
 	lineNo := 0

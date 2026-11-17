@@ -59,6 +59,12 @@ type Song struct {
 	ProjectErr                                error     // set by LoadChart when chart.jam.json couldn't be read
 	Added                                     time.Time // when the folder was created or last changed
 
+	// From the folder listing, so the library index can tell whether the
+	// chart changed without another stat call.
+	ChartSize int64 // bytes
+	ChartMod  int64 // unix nanoseconds
+	ProjMod   int64 // chart.jam.json, unix nanoseconds (0: none)
+
 	Stems    map[string]string // stem name -> file path
 	CoverArt string
 }
@@ -116,14 +122,58 @@ var ErrNoChart = errors.New("no chart file in folder")
 
 // LoadSongFolder inspects a song folder.
 func LoadSongFolder(dir string) (*Song, error) {
+	st, err := os.Stat(dir)
+	if err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
-	s := &Song{Dir: dir, Stems: map[string]string{}}
+	if !hasChart(entries) {
+		return nil, ErrNoChart
+	}
+	return songFromEntries(dir, st.ModTime(), entries, fileInfos(entries))
+}
+
+// isChartName reports whether a lower-cased file name is a chart file.
+func isChartName(lower string) bool {
+	return filepath.Ext(lower) == ".chart" || lower == "notes.mid"
+}
+
+// hasChart reports whether a folder listing has a chart file.
+func hasChart(entries []fs.DirEntry) bool {
+	for _, e := range entries {
+		if !e.IsDir() && isChartName(strings.ToLower(e.Name())) {
+			return true
+		}
+	}
+	return false
+}
+
+// fileInfos returns size and modification time for each file entry (nil
+// for folders or entries that vanished). On Windows the listing already
+// carries this, so it costs no extra system calls.
+func fileInfos(entries []fs.DirEntry) []fs.FileInfo {
+	out := make([]fs.FileInfo, len(entries))
+	for i, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if fi, err := e.Info(); err == nil {
+			out[i] = fi
+		}
+	}
+	return out
+}
+
+// songFromEntries builds a Song from a folder listing. infos lines up with
+// entries (see fileInfos).
+func songFromEntries(dir string, dirMod time.Time, entries []fs.DirEntry, infos []fs.FileInfo) (*Song, error) {
+	s := &Song{Dir: dir, Stems: map[string]string{}, Added: dirMod}
 	var charts []string
 	stemExt := map[string]int{}
-	for _, e := range entries {
+	for i, e := range entries {
 		if e.IsDir() {
 			continue
 		}
@@ -136,8 +186,12 @@ func LoadSongFolder(dir string) (*Song, error) {
 			if ini, err := ReadSongIni(filepath.Join(dir, name)); err == nil {
 				s.Ini = ini
 			}
-		case ext == ".chart" || lower == "notes.mid":
+		case isChartName(lower):
 			charts = append(charts, name)
+		case lower == ProjectFile:
+			if infos[i] != nil {
+				s.ProjMod = infos[i].ModTime().UnixNano()
+			}
 		case stemNames[base]:
 			if rank := extRank(ext); rank >= 0 {
 				if prev, ok := stemExt[base]; !ok || rank < prev {
@@ -156,7 +210,13 @@ func LoadSongFolder(dir string) (*Song, error) {
 	if len(charts) == 0 {
 		return nil, ErrNoChart
 	}
-	s.ChartPath = filepath.Join(dir, pickChart(charts))
+	chartName := pickChart(charts)
+	s.ChartPath = filepath.Join(dir, chartName)
+	for i, e := range entries {
+		if e.Name() == chartName && infos[i] != nil {
+			s.ChartSize, s.ChartMod = infos[i].Size(), infos[i].ModTime().UnixNano()
+		}
+	}
 	// Numbered stems replace the single stem of the same instrument.
 	if _, ok := s.Stems[StemDrums1]; ok {
 		delete(s.Stems, StemDrums)
@@ -225,9 +285,6 @@ func (s *Song) fillMeta() {
 	} else if v, ok := ini.Int("track"); ok {
 		s.AlbumTrack = int(v)
 	}
-	if st, err := os.Stat(s.Dir); err == nil {
-		s.Added = st.ModTime()
-	}
 	if s.Name == "" || s.Artist == "" {
 		// Fall back to the .chart [Song] section, then the folder name.
 		if !strings.EqualFold(filepath.Ext(s.ChartPath), ".mid") {
@@ -259,49 +316,4 @@ func (s *Song) fillMeta() {
 	if s.Name == "" {
 		s.Name = filepath.Base(s.Dir)
 	}
-}
-
-// ScanLibrary walks the given roots and returns every song folder found,
-// sorted by artist then name. Errors in individual folders are skipped.
-func ScanLibrary(roots []string) []*Song {
-	var songs []*Song
-	seen := map[string]bool{}
-	for _, root := range roots {
-		if root == "" {
-			continue
-		}
-		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				if d != nil && d.IsDir() {
-					return fs.SkipDir
-				}
-				return nil
-			}
-			if !d.IsDir() {
-				return nil
-			}
-			if strings.HasPrefix(d.Name(), ".") && path != root {
-				return fs.SkipDir
-			}
-			key := strings.ToLower(filepath.Clean(path))
-			if seen[key] {
-				return fs.SkipDir
-			}
-			s, err := LoadSongFolder(path)
-			if err == nil {
-				seen[key] = true
-				s.Root = root
-				songs = append(songs, s)
-			}
-			return nil
-		})
-	}
-	sort.SliceStable(songs, func(i, j int) bool {
-		a, b := strings.ToLower(songs[i].Artist), strings.ToLower(songs[j].Artist)
-		if a != b {
-			return a < b
-		}
-		return strings.ToLower(songs[i].Name) < strings.ToLower(songs[j].Name)
-	})
-	return songs
 }

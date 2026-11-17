@@ -29,7 +29,7 @@ func ReadSongIni(path string) (*SongIni, error) {
 func ParseSongIni(r io.Reader) (*SongIni, error) {
 	ini := &SongIni{Values: map[string]string{}}
 	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	sc.Buffer(make([]byte, 0, 4096), 4*1024*1024)
 	section := ""
 	sawSection := false
 	first := true

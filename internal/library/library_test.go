@@ -71,9 +71,12 @@ func TestIndexCacheAndUpdate(t *testing.T) {
 	if _, total, _, _ := y.Progress(); total != 0 {
 		t.Fatalf("unchanged chart re-analyzed (%d)", total)
 	}
-	// Touching the chart makes it stale.
+	// Touching the chart makes it stale (the next scan sees the new time).
 	later := time.Now().Add(time.Minute)
 	if err := os.Chtimes(s.ChartPath, later, later); err != nil {
+		t.Fatal(err)
+	}
+	if s, err = chart.LoadSongFolder(songDir); err != nil {
 		t.Fatal(err)
 	}
 	y.Update([]*chart.Song{s})
@@ -81,6 +84,44 @@ func TestIndexCacheAndUpdate(t *testing.T) {
 		t.Fatalf("changed chart not re-analyzed (%d)", total)
 	}
 	waitIdle(t, y)
+	// So does adding or editing chart.jam.json, which carries vocal parts.
+	proj := filepath.Join(songDir, chart.ProjectFile)
+	if err := os.WriteFile(proj, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if s, err = chart.LoadSongFolder(songDir); err != nil {
+		t.Fatal(err)
+	}
+	y.Update([]*chart.Song{s})
+	if _, total, _, _ := y.Progress(); total != 1 {
+		t.Fatalf("new chart.jam.json not noticed (%d)", total)
+	}
+	waitIdle(t, y)
+}
+
+// An Update that arrives while indexing runs is done right after.
+func TestIndexQueuesUpdateWhileRunning(t *testing.T) {
+	dir := t.TempDir()
+	a, err := demo.Write(filepath.Join(dir, "a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := demo.Write(filepath.Join(dir, "b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sa, _ := chart.LoadSongFolder(a)
+	sb, _ := chart.LoadSongFolder(b)
+	x := Open(filepath.Join(dir, "library.json.gz"))
+	x.Update([]*chart.Song{sa})
+	x.Update([]*chart.Song{sa, sb})
+	for i := 0; i < 500 && (x.Get(sb) == nil); i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	waitIdle(t, x)
+	if x.Get(sa) == nil || x.Get(sb) == nil {
+		t.Fatal("queued update was dropped")
+	}
 }
 
 func waitIdle(t *testing.T, x *Index) {

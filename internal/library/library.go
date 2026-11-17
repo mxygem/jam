@@ -31,7 +31,8 @@ type Part struct {
 // Info is what the index knows about one song.
 type Info struct {
 	ChartSize int64  `json:"chart_size"`
-	ChartMod  int64  `json:"chart_mod"` // unix nanoseconds
+	ChartMod  int64  `json:"chart_mod"`          // unix nanoseconds
+	ProjMod   int64  `json:"proj_mod,omitempty"` // chart.jam.json, unix nanoseconds
 	Parts     []Part `json:"parts"`
 	LengthMs  int64  `json:"length_ms"` // last note or sustain end
 	Lyrics    bool   `json:"lyrics"`
@@ -56,9 +57,7 @@ func (in *Info) Part(inst chart.Instrument) *Part {
 // Analyze parses a song's chart and summarizes it.
 func Analyze(s *chart.Song) *Info {
 	in := &Info{}
-	if st, err := os.Stat(s.ChartPath); err == nil {
-		in.ChartSize, in.ChartMod = st.Size(), st.ModTime().UnixNano()
-	}
+	in.ChartSize, in.ChartMod, in.ProjMod = chartStamp(s)
 	c, err := s.LoadChart()
 	if err != nil {
 		in.Err = err.Error()
@@ -105,6 +104,10 @@ type Index struct {
 	total   int
 	running bool
 	gen     int // bumps whenever new info arrives (for UI refresh)
+
+	// pending holds the latest song list handed to Update while it was
+	// already running; it is indexed as soon as the current run ends.
+	pending []*chart.Song
 }
 
 func key(dir string) string { return strings.ToLower(filepath.Clean(dir)) }
@@ -155,15 +158,33 @@ func (x *Index) Progress() (done, total int, running bool, gen int) {
 	return x.done, x.total, x.running, x.gen
 }
 
+// chartStamp returns the size and modification time of a song's chart and
+// the modification time of its chart.jam.json. Songs from a library scan
+// carry these from the folder listing; others are stat'ed.
+func chartStamp(s *chart.Song) (size, mod, proj int64) {
+	if s.ChartMod != 0 {
+		return s.ChartSize, s.ChartMod, s.ProjMod
+	}
+	if st, err := os.Stat(s.ChartPath); err == nil {
+		size, mod = st.Size(), st.ModTime().UnixNano()
+	}
+	if st, err := os.Stat(filepath.Join(s.Dir, chart.ProjectFile)); err == nil {
+		proj = st.ModTime().UnixNano()
+	}
+	return size, mod, proj
+}
+
 func fresh(in *Info, s *chart.Song) bool {
 	if in == nil {
 		return false
 	}
-	st, err := os.Stat(s.ChartPath)
-	if err != nil {
-		return true // can't tell; keep what we have
+	if s.ChartMod == 0 {
+		if _, err := os.Stat(s.ChartPath); err != nil {
+			return true // can't tell; keep what we have
+		}
 	}
-	return st.Size() == in.ChartSize && st.ModTime().UnixNano() == in.ChartMod
+	size, mod, proj := chartStamp(s)
+	return size == in.ChartSize && mod == in.ChartMod && proj == in.ProjMod
 }
 
 // Update indexes songs whose charts are new or changed, in the background,
@@ -171,6 +192,7 @@ func fresh(in *Info, s *chart.Song) bool {
 func (x *Index) Update(songs []*chart.Song) {
 	x.mu.Lock()
 	if x.running {
+		x.pending = songs
 		x.mu.Unlock()
 		return
 	}
@@ -220,10 +242,15 @@ func (x *Index) Update(songs []*chart.Song) {
 		x.mu.Lock()
 		x.running = false
 		x.gen++
+		next := x.pending
+		x.pending = nil
 		x.mu.Unlock()
 		log.Printf("library index: %d charts analyzed in %.1fs", len(todo), time.Since(start).Seconds())
 		if err := x.Save(); err != nil {
 			log.Printf("library index: save: %v", err)
+		}
+		if next != nil {
+			x.Update(next)
 		}
 	}()
 }

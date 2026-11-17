@@ -46,7 +46,9 @@ type SongSelect struct {
 	sel, top int // indexes into rows; sel is always a song row
 	search   string
 	scanning bool
-	gen      int // library index generation the rows were built from
+	cached   bool // showing the saved scan while the folders are checked
+	libGen   int  // library generation the rows were built from
+	gen      int  // library index generation the rows were built from
 	built    float64
 
 	inst chart.Instrument
@@ -91,8 +93,8 @@ func (s *SongSelect) ctx(a *App) *browseCtx {
 // refresh re-reads the library and rebuilds the rows, keeping the selection.
 func (s *SongSelect) refresh(a *App) {
 	keep := s.current()
-	songs, scanning := a.Library()
-	s.all, s.scanning = songs, scanning
+	songs, scanning, cached, _, gen := a.LibraryState()
+	s.all, s.scanning, s.cached, s.libGen = songs, scanning, cached, gen
 	_, _, _, s.gen = a.Index.Progress()
 	s.rows = s.b.buildRows(s.all, a.Settings.Browse, s.ctx(a))
 	s.built = clock.Now()
@@ -227,10 +229,8 @@ func (s *SongSelect) jumpGroup(d int) {
 
 func (s *SongSelect) Update(a *App) error {
 	// library and index progress
-	if s.scanning {
-		if _, scanning := a.Library(); !scanning {
-			s.refresh(a)
-		}
+	if _, scanning, _, _, gen := a.LibraryState(); gen != s.libGen || scanning != s.scanning {
+		s.refresh(a)
 	}
 	if _, _, running, gen := a.Index.Progress(); gen != s.gen && clock.Now()-s.built > 0.6 {
 		if s.needsIndex(a) || !running {
@@ -805,12 +805,17 @@ func (s *SongSelect) subtitle(a *App) string {
 			shown++
 		}
 	}
-	if s.scanning {
-		parts = append(parts, fmt.Sprintf("Scanning... %d songs so far", len(s.all)))
-	} else if shown != len(s.all) {
+	_, _, _, found, _ := a.LibraryState()
+	switch {
+	case s.scanning && !s.cached && len(s.all) == 0:
+		parts = append(parts, fmt.Sprintf("Scanning... %d songs so far", found))
+	case shown != len(s.all):
 		parts = append(parts, fmt.Sprintf("%d of %s", shown, plural(len(s.all), "song")))
-	} else {
+	default:
 		parts = append(parts, plural(len(s.all), "song"))
+	}
+	if s.scanning && len(s.all) > 0 {
+		parts = append(parts, "checking for changes")
 	}
 	dir := ""
 	if b.Desc {
