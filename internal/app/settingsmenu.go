@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"math"
+	"path/filepath"
 	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -43,11 +44,12 @@ type settingsMenu struct {
 	typingTitle string
 	onTyped     func(string)
 
-	folders      *List        // removing a song folder
-	armed        string       // the folder waiting for a second press to remove
-	openControls func()       // opens the Controls screen
-	picker       *colorPicker // editing a theme color
-	previewDrums bool         // the Appearance preview plays drums
+	folders      *List          // removing a song folder
+	browser      *folderBrowser // clicking through to a song folder to add
+	armed        string         // the folder waiting for a second press to remove
+	openControls func()         // opens the Controls screen
+	picker       *colorPicker   // editing a theme color
+	previewDrums bool           // the Appearance preview plays drums
 }
 
 // startTyping asks for a line of text.
@@ -314,10 +316,12 @@ func newSettingsMenu(a *App, inSong bool) *settingsMenu {
 	}
 	if !inSong {
 		system = append(system,
-			Item{Label: "Add a song folder...", Hint: "Type or paste a folder path, then Enter", Activate: func() {
+			Item{Label: "Add a song folder...", Hint: "Type a folder path or paste one with Ctrl+V, then Enter. A folder copied in the file browser pastes as its path", Activate: func() {
 				m.startTyping("Add a song folder", "", func(s string) { addSongFolder(a, s) })
 				m.typing.Placeholder = `C:\Users\you\Songs`
 			}},
+			Item{Label: "Browse for a song folder...", Hint: "Click (or strum) through your drives to the folder, then add it",
+				Activate: func() { m.openBrowser(a) }},
 			Item{Label: "Remove a song folder...", Hint: "Pick a folder to take out of the library. Its files stay on disk",
 				Activate: func() { m.openFolders(a) }},
 			Item{Label: "Rescan library", Activate: func() { a.RescanLibrary(); a.Toast("Rescanning library...") }},
@@ -412,6 +416,9 @@ func (m *settingsMenu) title() string {
 	if m.folders != nil {
 		return "Remove a song folder"
 	}
+	if m.browser != nil {
+		return "Add a song folder"
+	}
 	if m.page < 0 {
 		return "Settings"
 	}
@@ -449,6 +456,12 @@ func (m *settingsMenu) update(a *App) bool {
 		}
 		return false
 	}
+	if m.browser != nil {
+		if m.browser.update(a) {
+			m.browser = nil
+		}
+		return false
+	}
 	if m.page < 0 {
 		if m.cats.Update(a) {
 			return false
@@ -472,6 +485,8 @@ func (m *settingsMenu) rows() int {
 		l = &m.picker.list
 	case m.folders != nil:
 		l = m.folders
+	case m.browser != nil:
+		l = &m.browser.list
 	case m.page >= 0:
 		l = &m.items
 	}
@@ -485,6 +500,9 @@ func (m *settingsMenu) hint() string {
 	}
 	if m.folders != nil {
 		return m.folders.Hint()
+	}
+	if m.browser != nil {
+		return m.browser.hint()
 	}
 	if m.page < 0 {
 		return m.cats.Hint()
@@ -500,6 +518,10 @@ func (m *settingsMenu) draw(dst *ebiten.Image, x, y, w, rowH float64) {
 	}
 	if m.folders != nil {
 		m.folders.Draw(dst, x, y, w, rowH)
+		return
+	}
+	if m.browser != nil {
+		m.browser.list.Draw(dst, x, y, w, rowH)
 		return
 	}
 	if m.page < 0 {
@@ -521,8 +543,23 @@ func (m *settingsMenu) drawTyping(dst *ebiten.Image) {
 	render.Text(dst, m.typingTitle, render.UIBold, 36, 300, 430, th.Text, render.Left)
 	m.typing.Draw(dst, 300, 500, 1320)
 	if !m.typing.Keyboard() {
-		render.Text(dst, "Enter to add, Esc to cancel", render.Cond, 24, 300, 580, th.TextDim, render.Left)
+		render.Text(dst, "Enter to add, Ctrl+V to paste, Esc to cancel", render.Cond, 24, 300, 580, th.TextDim, render.Left)
 	}
+}
+
+// openBrowser opens the folder browser beside the last song folder added
+// (songs tend to live together), or at the list of drives.
+func (m *settingsMenu) openBrowser(a *App) {
+	start := ""
+	if n := len(a.Settings.LibraryPaths); n > 0 {
+		start = parentDir(filepath.Clean(a.Settings.LibraryPaths[n-1]))
+	}
+	m.browser = newFolderBrowser(start, func(p string) bool { return inLibrary(a, p) }, func(p string) {
+		m.browser = nil
+		if p != "" {
+			addSongFolder(a, p)
+		}
+	})
 }
 
 // openFolders lists the song folders to remove one. The first press arms a

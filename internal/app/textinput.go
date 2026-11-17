@@ -9,6 +9,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 
 	"github.com/mxygem/jam/internal/action"
+	"github.com/mxygem/jam/internal/clipboard"
 	"github.com/mxygem/jam/internal/clock"
 	"github.com/mxygem/jam/internal/input"
 	"github.com/mxygem/jam/internal/render"
@@ -17,6 +18,7 @@ import (
 // TextInput is a one-line text field. It's typed on the keyboard, or on an
 // on-screen keyboard played with the guitar: that opens by itself when a
 // controller was the last thing used, and goes away when a key is typed.
+// Ctrl+V (Cmd+V on a Mac) or Shift+Insert pastes from the clipboard.
 type TextInput struct {
 	Value       string
 	Placeholder string
@@ -55,6 +57,72 @@ func (t *TextInput) backspace() {
 	}
 }
 
+// clipboardText reads the clipboard; tests swap it.
+var clipboardText = clipboard.Text
+
+// keyHeld reports whether any of the keyboard keys is down.
+func keyHeld(a *App, keys ...ebiten.Key) bool {
+	for _, k := range keys {
+		if a.Input != nil {
+			if v, ok := a.Input.Value(input.ControlKey{Src: input.SrcKeyboard, Kind: input.KindKey, Code: int(k)}); ok && v > 0 {
+				return true
+			}
+		}
+		if ebiten.IsKeyPressed(k) {
+			return true
+		}
+	}
+	return false
+}
+
+// ctrlHeld is Ctrl or Cmd without Alt (AltGr is Ctrl+Alt on Windows, and
+// types characters).
+func ctrlHeld(a *App) bool {
+	return keyHeld(a, ebiten.KeyControlLeft, ebiten.KeyControlRight, ebiten.KeyMetaLeft, ebiten.KeyMetaRight) &&
+		!keyHeld(a, ebiten.KeyAltLeft, ebiten.KeyAltRight)
+}
+
+// pasteKey reports whether Ctrl+V or Shift+Insert was pressed this frame.
+func pasteKey(a *App) bool {
+	for _, e := range a.Raw {
+		if e.Src != input.SrcKeyboard || !e.Down {
+			continue
+		}
+		switch ebiten.Key(e.Code) {
+		case ebiten.KeyV:
+			if ctrlHeld(a) {
+				return true
+			}
+		case ebiten.KeyInsert:
+			if keyHeld(a, ebiten.KeyShiftLeft, ebiten.KeyShiftRight) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// paste adds the clipboard's text (its first line) at the end.
+func (t *TextInput) paste(a *App) {
+	s, err := clipboardText()
+	if err != nil {
+		a.Toast("Couldn't paste: " + err.Error())
+		return
+	}
+	s = clipboard.Line(s)
+	if s == "" {
+		a.Toast("Nothing to paste: copy some text first")
+		return
+	}
+	before := len([]rune(t.Value))
+	for _, r := range s {
+		t.add(r)
+	}
+	if len([]rune(t.Value))-before < len([]rune(s)) {
+		a.Toast("That was too long to paste in full")
+	}
+}
+
 // Update reads typing. It returns done on Enter and cancel on Escape.
 func (t *TextInput) Update(a *App) (done, cancel bool) {
 	if !t.started {
@@ -67,11 +135,17 @@ func (t *TextInput) Update(a *App) (done, cancel bool) {
 			t.osk = e.Src != input.SrcKeyboard
 		}
 	}
+	if pasteKey(a) {
+		t.paste(a)
+		return false, false
+	}
 	if t.osk {
 		return t.updateKeyboard(a)
 	}
-	for _, r := range a.Chars {
-		t.add(r)
+	if !ctrlHeld(a) { // Ctrl+V and the like aren't typing
+		for _, r := range a.Chars {
+			t.add(r)
+		}
 	}
 	now := clock.Now()
 	del := false

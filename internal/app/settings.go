@@ -5,6 +5,7 @@ import (
 	"image"
 	"math"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -47,10 +48,26 @@ func (s *Settings) save(a *App) {
 	}
 }
 
-// addSongFolder adds a library folder typed by the player.
+// inLibrary reports whether a folder is already one of the song folders.
+func inLibrary(a *App, path string) bool {
+	for _, p := range a.Settings.LibraryPaths {
+		if samePath(p, path) {
+			return true
+		}
+	}
+	return false
+}
+
+// addSongFolder adds a library folder typed, pasted or browsed to by the
+// player.
 func addSongFolder(a *App, path string) {
 	p := strings.Trim(strings.TrimSpace(path), "\"")
 	if p == "" {
+		return
+	}
+	p = filepath.Clean(p)
+	if inLibrary(a, p) {
+		a.Toast("Already in the library: " + p)
 		return
 	}
 	if st, err := os.Stat(p); err == nil && st.IsDir() {
@@ -89,6 +106,8 @@ func (s *Settings) Draw(dst *ebiten.Image, a *App) {
 	switch {
 	case s.menu.picker != nil:
 		sub = "Appearance · " + s.menu.picker.slot.Group
+	case s.menu.browser != nil:
+		sub = s.menu.browser.where()
 	case s.menu.page >= 0:
 		sub = "Settings"
 	}
@@ -104,6 +123,10 @@ func (s *Settings) Draw(dst *ebiten.Image, a *App) {
 		s.drawFolders(dst, a, 1000, 250)
 	}
 	s.menu.drawTyping(dst)
+	if s.menu.browser != nil {
+		Footer(dst, "Enter / green / click open     Left up one level     Type to jump to a folder     Esc / red cancel")
+		return
+	}
 	Footer(dst, "Left/right change     Enter / green open     Esc / red back")
 }
 
