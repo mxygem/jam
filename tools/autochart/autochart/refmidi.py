@@ -108,3 +108,74 @@ def parse_drums(evs, tm, five_lane=None):
         res[diff] = sorted(notes)
     res["five_lane"] = five_lane
     return res
+
+
+def load_chart(path):
+    """Read a .chart (Clone Hero text format) into the same structure as load()."""
+    secs, cur = {}, None
+    for line in open(path, encoding="utf-8-sig", errors="ignore"):
+        line = line.strip()
+        if line.startswith("[") and line.endswith("]"):
+            cur = line[1:-1]; secs[cur] = []
+        elif "=" in line and cur:
+            k, _, v = line.partition("=")
+            secs[cur].append((k.strip(), v.strip()))
+    res = 192
+    for k, v in secs.get("Song", []):
+        if k == "Resolution":
+            res = int(v)
+    tempos, sigs = [], []
+    for k, v in secs.get("SyncTrack", []):
+        p = v.split()
+        if p[0] == "B":
+            tempos.append((int(k), int(round(60e6 / (int(p[1]) / 1000.0)))))
+        elif p[0] == "TS":
+            sigs.append((int(k), int(p[1]), 2 ** int(p[2]) if len(p) > 2 else 4))
+    tm = TempoMap(res, tempos)
+    out = {"tpb": res, "tempo": tm, "tempos": tempos, "sigs": sigs, "tracks": list(secs), "beats": [],
+           "sections": [(tm.sec(int(k)), v) for k, v in secs.get("Events", []) if "section" in v]}
+    drums, five = {}, False
+    for diff in DIFF_BASE:
+        name = diff.capitalize() + "Drums"
+        notes, cym = {}, set()
+        for k, v in secs.get(name, []):
+            p = v.split()
+            if p[0] != "N":
+                continue
+            t, n = int(k), int(p[1])
+            if n in (66, 67, 68):
+                cym.add((t, n - 64))
+            elif n == 5:
+                five = True; notes.setdefault(t, set()).add(5)
+            elif n == 32:
+                notes.setdefault(t, set()).add(32)
+            elif 0 <= n <= 4:
+                notes.setdefault(t, set()).add(n)
+        lst = []
+        for t, lanes in notes.items():
+            for n in lanes:
+                if n == 32:
+                    cls = "kick2x"
+                elif five:
+                    cls = FIVE[n]
+                elif n in (0, 1):
+                    cls = PRO_LANE[n]
+                else:
+                    lane = PRO_LANE[n]
+                    cls = CYM[lane] if (t, n) in cym else TOM[lane]
+                lst.append((tm.sec(t), cls, t))
+        drums[diff] = sorted(lst)
+        drums.setdefault("cym_marks", 0)
+        drums["cym_marks"] += len(cym)
+    drums["five_lane"] = five
+    out["drums"] = drums
+    return out
+
+
+def is_pro(r):
+    """True when a parsed chart marks toms vs cymbals (tom markers in .mid, cymbal flags in .chart)."""
+    d = r.get("drums") or {}
+    if d.get("five_lane"):
+        return False
+    ex = d.get("expert", [])
+    return any(c.startswith("tom") for _, c, _ in ex) and any(c in ("hihat", "ride", "crash") for _, c, _ in ex)

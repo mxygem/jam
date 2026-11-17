@@ -1,13 +1,14 @@
-"""autochart: audio file -> jam song folder (drums for now).
+"""autochart: audio file -> jam song folder with an Expert pro drums chart.
+Lower difficulties are a separate step: python -m autochart.difficulties <folder>.
 
   python -m autochart.run SONG.mp3 --artist A --title T [--drums STEM.wav] [--out-root DIR]
 
 Steps: Demucs drum stem (unless --drums is given) -> onset candidates -> trained hit detectors ->
-cymbal lanes, tom pitches -> beat grid -> snapped Expert notes -> learned Hard/Medium/Easy ->
+cymbal lanes, tom pitches -> beat grid -> snapped Expert notes ->
 notes.chart + chart.jam.json + song.ini + audio.
 """
 import argparse, os, subprocess, sys, json, shutil, time, numpy as np
-from . import features, models, tempomap, chart, reduce as red
+from . import features, models, tempomap, chart
 
 THR = 0.4
 
@@ -84,18 +85,6 @@ def downbeat_phase(beats, hits):
     return tempomap.downbeats(beats, pick("kick"), pick("snare"), pick("crash"))
 
 
-def reduce_diffs(model, expert):
-    notes = [(n["t"], n["cls"]) for n in expert]
-    out = {"expert": expert}
-    if not notes:
-        return {d: [] for d in ("expert", "hard", "medium", "easy")}
-    X = red.features(notes, chart.RES)
-    for d in ("hard", "medium", "easy"):
-        keep = model.reduce[d].predict_proba(X)[:, 1] > 0.5
-        out[d] = [dict(n, conf=round(n["conf"] * 0.9, 3), src=n["src"] + f" kept:{d}") for n, k in zip(expert, keep) if k]
-    return out
-
-
 def sections_every(grid, bars=8, meter=4):
     """Practice sections every 8 bars from the first full bar (placeholder until structure analysis)."""
     first = grid.pickup * chart.RES
@@ -125,18 +114,19 @@ def main(argv=None):
     beats = beat_grid(hits, end, log)
     grid = chart.Grid(beats)
     expert = chart.build_expert(grid, hits)
-    diffs = reduce_diffs(model, expert)
+    diffs = {"expert": expert}
     phase = downbeat_phase(beats, hits)
     grid.set_downbeat(len(grid.beats) - len(beats) + phase)
     sections = sections_every(grid)
     log(" ".join(f"{d} {len(n)}" for d, n in diffs.items()))
-    meta = dict(title=title, artist=a.artist, album="", year="", genre="", charter="jam autochart",
+    # the title says it's an autochart so it isn't mistaken for a human chart of the same song
+    meta = dict(title=f"{title} (autochart)", artist=a.artist, album="", year="", genre="", charter="jam autochart",
                 length_ms=int(end * 1000), audio={"drums": "drums.ogg", "song": "song.ogg"}, preview_start_ms=-1)
     chart.write_chart(os.path.join(folder, "notes.chart"), meta, grid, diffs, sections)
     chart.write_project(os.path.join(folder, "chart.jam.json"), meta, grid, diffs, sections,
                         {"beats": [round(b, 4) for b in beats], "drum_hits": len(hits)}, logs)
     with open(os.path.join(folder, "song.ini"), "w", encoding="utf-8") as f:
-        f.write(f"[song]\nname = {title}\nartist = {a.artist}\ncharter = jam autochart\npro_drums = True\n"
+        f.write(f"[song]\nname = {title} (autochart)\nartist = {a.artist}\ncharter = jam autochart\npro_drums = True\n"
                 f"diff_drums = -1\ndiff_drums_real = -1\nsong_length = {int(end * 1000)}\npreview_start_time = -1\n")
     # audio: the mix without drums as song.ogg (full mix if no separation ran), drum stem as drums.ogg
     rest = os.path.join(work, "no_drums.wav")

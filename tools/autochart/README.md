@@ -1,10 +1,16 @@
 # autochart
 
-Audio file in, playable jam song folder out. Drums only for now (lyrics, bass and guitar come back later).
+Audio file in, playable jam song folder out, with an Expert pro drums chart. Lyrics, bass and guitar
+come back later.
 
 ```
 python -m autochart.run "song.mp3" --artist "Artist" --title "Title"
+python -m autochart.difficulties "<song folder>"   # optional: add Hard / Medium / Easy
 ```
+
+autochart only makes Expert. Lower difficulties are a separate step, so they can be redone or made
+another way without touching Expert. The song title gets " (autochart)" so it isn't mistaken for a
+human chart of the same song.
 
 Writes `<out-root>\<Artist> - <Title> (autochart)\` with `notes.chart`, `chart.jam.json`, `song.ini`,
 `song.ogg` (the mix without drums) and `drums.ogg`. Default out-root on Windows is `E:\charts\autocharts`
@@ -27,8 +33,8 @@ Writes `<out-root>\<Artist> - <Title> (autochart)\` with `notes.chart`, `chart.j
    nudged onto strong hits (follows live drift). Bars from where kicks, snares and crashes land, with a
    short pickup bar at the start when needed.
 6. **Notes** (`chart.py`): snap to 16ths or triplets within 35 ms, else keep the real time.
-7. **Hard / Medium / Easy** (`reduce.py`): a classifier per difficulty predicts which Expert notes stay,
-   learned from the official charts' own reductions.
+7. **Hard / Medium / Easy** (separate tool, `difficulties.py` + `reduce.py`): a classifier per difficulty
+   predicts which Expert notes stay, learned from the official charts' own reductions.
 8. **Output**: `.chart` (Clone Hero / YARG / jam) and `chart.jam.json` (`jam-project/1`, every note with
    `conf` and `src`).
 
@@ -56,6 +62,13 @@ Demucs on `mix.wav` gives `drums_sep.wav`, the realistic input.
 - `tools/beateval.py`: beat grid vs the reference tempo map.
 - `tools/reduceeval.py`: learned reductions vs the official Hard/Medium/Easy.
 - `tools/train_final.py [--exclude SONG]`: train and save `autochart/model.pkl`.
+- `tools/libprep.py training_candidates.csv`: turn library charts into training songs (Demucs on the GPU).
+  Gem's recommended charters, in her order of preference: FigNeutered, Satan, tomato, Bloodline, Hoph2o,
+  Fouriguy, deckra, AbstractOrigin, Boo, XEntombmentX, CyclopsDragon, Onyxite. Songs are weighted by that
+  order and each charter's songs share at most 20 songs' worth of weight. Charts without pro-drum markings
+  and duplicates of the reference songs are skipped.
+- `tools/evallib.py`: train on library songs only, score the reference songs.
+- `setup_wsl.sh`, `tools/pc_pipeline.sh`: GPU setup and the whole library run on Gem's PC (WSL).
 - `tools/compare.py <notes.mid> <autochart folder>`: end-to-end score of a finished chart.
 
 Set `OMP_NUM_THREADS=1` when something else is using the CPU (Demucs): OpenMP contention made training

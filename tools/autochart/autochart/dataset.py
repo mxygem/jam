@@ -8,6 +8,11 @@ DATA = os.environ.get("AUTOCHART_DATA", os.path.expanduser("~/.cache/autochart/r
 
 
 def ref_notes(song):
+    """Reference chart for a song: library songs carry ref.pkl (from tools/libprep.py), the reference set
+    is read from REF_ROOT."""
+    lib = os.path.join(DATA, song, "ref.pkl")
+    if os.path.exists(lib):
+        return pickle.load(open(lib, "rb"))
     ini = open(os.path.join(REF_ROOT, song, "song.ini"), encoding="utf-8", errors="ignore").read().lower()
     five = "five_lane_drums = 1" in ini
     r = refmidi.load(os.path.join(REF_ROOT, song, "notes.mid"), five_lane=five or None)
@@ -45,6 +50,6 @@ def build(song, which):
         if abs(shifted[j] - t) < 0.04:
             Y[j, CLASSES.index(c)] = 1
     d = dict(song=song, which=which, times=times, X=X, Y=Y, offset=off, ref=ex,
-             end=r["tempo"].sec(max(t for _, _, t in r["drums"]["expert"])) + 1)
+             end=max(t for t, _, _ in r["drums"]["expert"]) + 1, rank=r.get("rank"), charter=r.get("charter"))
     pickle.dump(d, open(cache, "wb"))
     return d
