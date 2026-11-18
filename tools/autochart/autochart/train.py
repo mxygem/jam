@@ -59,6 +59,7 @@ def lane_rows(d, Xn, P):
 
 def fit(sets, log=print):
     m = models.Model()
+    m.templates = True
     m.det = fit_stage1(sets)
     oof = oof_stage1(sets)
     Xc, Y, LX, LY, LW = [], [], [], [], []

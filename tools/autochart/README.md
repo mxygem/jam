@@ -33,6 +33,10 @@ Writes `<out-root>\<Artist> - <Title> (autochart)\` with `notes.chart`, `chart.j
    nudged onto strong hits (follows live drift). Bars from where kicks, snares and crashes land, with a
    short pickup bar at the start when needed.
 6. **Notes** (`chart.py`): snap to 16ths or triplets within 35 ms, else keep the real time.
+6b. **Bars and time signatures** (`meter.py`): an 8th-note pulse over the beat grid; the song's main bar
+   length from how its drum pattern repeats (7/4 for Cool 7, 5/4 for Days Into Nights); bars split by
+   dynamic programming using a learned beat-1 classifier (`downbeat_rows.npz`, fitted at startup), pattern
+   repetition, and bonuses for 4/4 and the main meter. Odd bars are written as x/8 (`TS 7 3`).
 7. **Hard / Medium / Easy** (separate tool, `difficulties.py` + `reduce.py`): a classifier per difficulty
    predicts which Expert notes stay, learned from the official charts' own reductions.
 8. **Output**: `.chart` (Clone Hero / YARG / jam) and `chart.jam.json` (`jam-project/1`, every note with
@@ -68,6 +72,9 @@ Demucs on `mix.wav` gives `drums_sep.wav`, the realistic input.
   order and each charter's songs share at most 20 songs' worth of weight. Charts without pro-drum markings
   and duplicates of the reference songs are skipped.
 - `tools/evallib.py`: train on library songs only, score the reference songs.
+- `tools/scoretodo.py <reference root>`: autochart each reference from its own audio, score notes and bar lines.
+- `tools/metereval2.py <dir>`: bar-line scores from chart files (leave-one-song-out downbeat model).
+- `tools/report.py <folders>`: tempo range, time signatures and off-grid notes per autochart.
 - `setup_wsl.sh`, `tools/pc_pipeline.sh`: GPU setup and the whole library run on Gem's PC (WSL).
 - `tools/compare.py <notes.mid> <autochart folder>`: end-to-end score of a finished chart.
 

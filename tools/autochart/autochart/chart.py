@@ -16,9 +16,33 @@ class Grid:
         self.beats = np.r_[0.0, b] if b[0] > 1e-3 else b
         self.ticks = np.arange(len(self.beats)) * RES
         self.pickup = 0  # beats before the first downbeat (written as a short first bar)
+        self.bars = None  # [(tick, num, den)] from meter detection; None = 4/4 from the pickup
 
     def set_downbeat(self, idx):
         self.pickup = int(idx) % 4
+
+    def set_bars(self, bars):
+        """bars: [(tick, num, den)] in order. A gap before the first bar becomes a pickup bar."""
+        out = []
+        if bars and bars[0][0] > 0:
+            # intro before the first detected bar: a short pickup bar, then 4/4 bars
+            eighths = int(round(bars[0][0] / (RES / 2)))
+            rem, tick = eighths % 8, 0
+            if rem:
+                out.append((0, rem // 2, 4) if rem % 2 == 0 else (0, rem, 8)); tick = rem * RES // 2
+            while tick < bars[0][0]:
+                out.append((tick, 4, 4)); tick += 4 * RES
+        self.bars = out + list(bars)
+
+    def time_sigs(self, ts=4):
+        """TS events (tick, num, den), only where the signature changes."""
+        if self.bars is None:
+            return ([(0, self.pickup, 4)] if self.pickup else []) + [(self.pickup * RES, ts, 4)]
+        out = []
+        for tick, num, den in self.bars:
+            if not out or (out[-1][1], out[-1][2]) != (num, den):
+                out.append((int(tick), num, den))
+        return out
 
     def tick(self, t):
         return float(np.interp(t, self.beats, self.ticks, right=self.ticks[-1] + (t - self.beats[-1]) / (self.beats[-1] - self.beats[-2]) * RES))
@@ -68,8 +92,8 @@ def build_expert(grid, hits):
 
 def write_chart(path, meta, grid, diffs, sections, ts=4):
     L = ["[Song]", "{", f'  Name = "{meta["title"]}"', f'  Artist = "{meta["artist"]}"', '  Charter = "jam autochart"',
-         f"  Resolution = {RES}", "  Offset = 0", '  MusicStream = "song.ogg"', '  DrumStream = "drums.ogg"', "}", "[SyncTrack]", "{"]
-    ev = ([(0, f"TS {grid.pickup}"), (grid.pickup * RES, f"TS {ts}")] if grid.pickup else [(0, f"TS {ts}")]) + [(tk, f"B {int(round(bpm * 1000))}") for tk, bpm in grid.tempos()]
+         f"  Resolution = {RES}", "  Offset = 0", f'  MusicStream = "{meta["audio"].get("song", "song.ogg")}"', f'  DrumStream = "{meta["audio"].get("drums", "drums.ogg")}"', "}", "[SyncTrack]", "{"]
+    ev = [(tk, f"TS {n}" if d == 4 else f"TS {n} {d.bit_length() - 1}") for tk, n, d in grid.time_sigs(ts)] + [(tk, f"B {int(round(bpm * 1000))}") for tk, bpm in grid.tempos()]
     L += [f"  {tk} = {e}" for tk, e in sorted(ev, key=lambda x: (x[0], x[1][0] != "T"))]
     L += ["}", "[Events]", "{"] + [f'  {tk} = E "section {name}"' for tk, name in sections] + ["}"]
     for diff, notes in diffs.items():
@@ -88,8 +112,7 @@ def write_project(path, meta, grid, diffs, sections, analysis, log, ts=4):
         "format": "jam-project/1",
         "song": meta,
         "grid": {"resolution": RES, "tempos": [{"tick": t, "bpm": b} for t, b in grid.tempos()],
-                 "time_signatures": ([{"tick": 0, "num": grid.pickup, "den": 4}] if grid.pickup else []) +
-                                    [{"tick": grid.pickup * RES, "num": ts, "den": 4}], "offset": 0.0},
+                 "time_signatures": [{"tick": tk, "num": n, "den": d} for tk, n, d in grid.time_sigs(ts)], "offset": 0.0},
         "sections": [{"tick": t, "name": n, "conf": 0.5} for t, n in sections],
         "parts": {"drums": {"instrument": "drums", "mode": "pro", "difficulties": {
             d: {"notes": clean(ns), "star_power": [], "solos": [], "fills": []} for d, ns in diffs.items()}}},

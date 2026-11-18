@@ -20,7 +20,7 @@ def norm(X):
     return np.hstack([X, (X - mu) / sd])
 
 
-def context(Xn, times, P):
+def context(Xn, times, P, templates=True):
     """Second-stage features: own probabilities plus the strongest same-group probabilities about
     one and two typical gaps before/after (captures steady patterns like 8th-note hats)."""
     cols = [P]
@@ -38,7 +38,31 @@ def context(Xn, times, P):
                     ok = j < hi
                     M[ok, k] = np.maximum(M[ok, k], col[np.minimum(j[ok], n - 1)])
             cols.append(M)
+    if templates:
+        cols.append(song_templates(Xn, P))
     return np.hstack([Xn] + cols).astype(np.float32)
+
+
+TIMBRE = slice(17, 49)   # rise over the pre-onset level, first two spans (0-30 ms), 16 bands each
+
+
+def song_templates(Xn, P, conf=0.7):
+    """How much each candidate sounds like this song's own confident hits of each group.
+    Mixes and dynamics differ: a quiet verse snare under a hi-hat can look like a hat next to other
+    songs' snares, but still matches this song's snare in its low-mid body. Per group: cosine
+    similarity of the candidate's attack rise to the group's mean, and its size relative to it."""
+    V = Xn[:, TIMBRE]
+    out = []
+    for k in range(P.shape[1]):
+        m = P[:, k] > conf
+        if m.sum() < 8:
+            out += [np.zeros(len(V)), np.zeros(len(V))]; continue
+        tpl = V[m].mean(0)
+        nt = np.linalg.norm(tpl) + 1e-6
+        nv = np.linalg.norm(V, axis=1) + 1e-6
+        out.append(V @ tpl / (nv * nt))
+        out.append((V @ tpl) / (nt * nt))
+    return np.stack(out, 1)
 
 
 def cym_features(Xn, times, P, i):
@@ -62,7 +86,7 @@ class Model:
     def predict(self, X, times):
         Xn = norm(X)
         P1 = np.stack([m.predict_proba(Xn)[:, 1] for m in self.det], 1)
-        Xc = context(Xn, times, P1)
+        Xc = context(Xn, times, P1, getattr(self, "templates", False))
         P = np.stack([m.predict_proba(Xc)[:, 1] for m in self.ctx], 1)
         return Xn, P
 

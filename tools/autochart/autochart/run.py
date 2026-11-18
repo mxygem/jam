@@ -8,7 +8,7 @@ cymbal lanes, tom pitches -> beat grid -> snapped Expert notes ->
 notes.chart + chart.jam.json + song.ini + audio.
 """
 import argparse, os, subprocess, sys, json, shutil, time, numpy as np
-from . import features, models, tempomap, chart
+from . import features, models, tempomap, chart, meter
 
 THR = 0.4
 
@@ -43,6 +43,18 @@ def tom_lanes(Xn, idx):
         return {i: "tom2" for i in idx}
     q1, q2 = np.percentile(cen, [33, 67])
     return {i: ("tom1" if c > q2 else "tom3" if c < q1 else "tom2") for i, c in zip(idx, cen)}
+
+
+def audio_codec():
+    """Vorbis .ogg when ffmpeg has libvorbis, else Opus .opus (some ffmpeg builds lack libvorbis)."""
+    enc = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True).stdout
+    if "libvorbis" in enc:
+        return "ogg", ["-c:a", "libvorbis", "-q:a", "5"]
+    return "opus", ["-c:a", "libopus", "-b:a", "160k"]
+
+
+def encode(src, dst, codec):
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", src] + codec + [dst], check=True)
 
 
 def detect(model, drums_path, log):
@@ -85,11 +97,13 @@ def downbeat_phase(beats, hits):
     return tempomap.downbeats(beats, pick("kick"), pick("snare"), pick("crash"))
 
 
-def sections_every(grid, bars=8, meter=4):
-    """Practice sections every 8 bars from the first full bar (placeholder until structure analysis)."""
+def sections_every(grid, every=8):
+    """Practice sections every 8 detected bars (placeholder until structure analysis)."""
+    if grid.bars:
+        starts = [t for t, _, _ in grid.bars[1:] if True] if grid.bars[0][0] == 0 and len(grid.bars) > 1 and grid.bars[1][0] > 0 else [t for t, _, _ in grid.bars]
+        return [(int(t), f"Part {i + 1}") for i, t in enumerate(starts[::every])]
     first = grid.pickup * chart.RES
-    last = grid.ticks[-1]
-    return [(int(t), f"Part {i + 1}") for i, t in enumerate(range(first, int(last), bars * meter * chart.RES))]
+    return [(int(t), f"Part {i + 1}") for i, t in enumerate(range(first, int(grid.ticks[-1]), every * 4 * chart.RES))]
 
 
 def main(argv=None):
@@ -115,26 +129,36 @@ def main(argv=None):
     grid = chart.Grid(beats)
     expert = chart.build_expert(grid, hits)
     diffs = {"expert": expert}
-    phase = downbeat_phase(beats, hits)
-    grid.set_downbeat(len(grid.beats) - len(beats) + phase)
+    # bars and time signatures from the drum pattern (8th-note resolution, odd meters allowed)
+    pulses, bar_list, main = meter.bars(beats, hits, meter.downbeat_model())
+    log("main meter %d/%d" % meter.time_signature(main))
+    lead = len(grid.beats) - len(beats)
+    eighth = chart.RES // 2
+    grid.set_bars([((lead * 2 + j) * eighth, *meter.time_signature(L)) for j, L in bar_list])
+    from collections import Counter
+    log("bars " + ", ".join(f"{n}/{d} x{k}" for (n, d), k in Counter(meter.time_signature(L) for _, L in bar_list).most_common()))
     sections = sections_every(grid)
     log(" ".join(f"{d} {len(n)}" for d, n in diffs.items()))
     # the title says it's an autochart so it isn't mistaken for a human chart of the same song
+    ext, codec = audio_codec()
+    audio = {"song": f"song.{ext}"} if a.drums else {"song": f"song.{ext}", "drums": f"drums.{ext}"}
     meta = dict(title=f"{title} (autochart)", artist=a.artist, album="", year="", genre="", charter="jam autochart",
-                length_ms=int(end * 1000), audio={"drums": "drums.ogg", "song": "song.ogg"}, preview_start_ms=-1)
+                length_ms=int(end * 1000), audio=audio, preview_start_ms=-1)
     chart.write_chart(os.path.join(folder, "notes.chart"), meta, grid, diffs, sections)
-    chart.write_project(os.path.join(folder, "chart.jam.json"), meta, grid, diffs, sections,
-                        {"beats": [round(b, 4) for b in beats], "drum_hits": len(hits)}, logs)
     with open(os.path.join(folder, "song.ini"), "w", encoding="utf-8") as f:
         f.write(f"[song]\nname = {title} (autochart)\nartist = {a.artist}\ncharter = jam autochart\npro_drums = True\n"
                 f"diff_drums = -1\ndiff_drums_real = -1\nsong_length = {int(end * 1000)}\npreview_start_time = -1\n")
-    # audio: the mix without drums as song.ogg (full mix if no separation ran), drum stem as drums.ogg
+    # audio: the mix without drums as song.* (full mix if no separation ran), drum stem as drums.*
     rest = os.path.join(work, "no_drums.wav")
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", rest if (not a.drums and os.path.exists(rest)) else a.audio, "-c:a", "libvorbis", "-q:a", "5", os.path.join(folder, "song.ogg")], check=True)
-    if not a.drums:
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", drums, "-c:a", "libvorbis", "-q:a", "5", os.path.join(folder, "drums.ogg")], check=True)
-    else:
-        meta["audio"].pop("drums", None)
+    encode(rest if (not a.drums and os.path.exists(rest)) else a.audio, os.path.join(folder, audio["song"]), codec)
+    if "drums" in audio:
+        encode(drums, os.path.join(folder, audio["drums"]), codec)
+    for stem in ("song", "drums"):  # remove audio left from a run with the other codec
+        other = os.path.join(folder, f"{stem}.{'opus' if ext == 'ogg' else 'ogg'}")
+        if os.path.exists(other):
+            os.remove(other)
+    chart.write_project(os.path.join(folder, "chart.jam.json"), meta, grid, diffs, sections,
+                        {"beats": [round(b, 4) for b in beats], "drum_hits": len(hits)}, logs)
     log(f"wrote {folder} in {time.time() - t0:.0f}s")
     return folder
 
