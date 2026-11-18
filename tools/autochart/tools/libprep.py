@@ -50,6 +50,9 @@ for row in rows:
                 if mix is None: mix = x
                 else:
                     n = max(len(mix), len(x)); y = np.zeros((n, 2), np.float32); y[:len(mix)] += mix; y[:len(x)] += x; mix = y
+        if len(mix) / SR > 900:
+            # full-album charts (40+ minutes) run the WSL VM out of memory in Demucs and crash it
+            print(f"skip (longer than 15 minutes, {len(mix) / SR / 60:.0f} min):", key, flush=True); skipped += 1; continue
         os.makedirs(out, exist_ok=True)
         sf.write(os.path.join(out, "mix.wav"), np.clip(mix, -1, 1), SR, subtype="PCM_16")
         subprocess.run([sys.executable, "-m", "demucs", "--repo", a.demucs_repo, "-n", "htdemucs", "--two-stems", "drums",
