@@ -1,0 +1,9 @@
+numpy
+scipy
+librosa
+soundfile
+scikit-learn
+mido
+torch
+torchaudio
+demucs
