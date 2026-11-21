@@ -57,32 +57,36 @@ jobs:
           sha=$(git rev-parse --short HEAD)
           build() { GOOS=$1 GOARCH=$2 go build -trimpath -ldflags "-s -w" -o "$3" ./cmd/jam; }
 
+          # Every download unpacks into a folder named jam, so the same
+          # commands update it in place. Each target is staged in
+          # stage/<target>/jam and packed from stage/<target>.
+
           # Linux: the binary, its icon and a script that adds jam to the app launcher.
-          d=dist/jam-linux-amd64
+          d=stage/linux-amd64/jam
           mkdir -p "$d"
           build linux amd64 "$d/jam"
           cp assets/icon/icon-256.png "$d/jam.png"
           cp packaging/linux/install.sh "$d/install.sh"
           chmod +x "$d/install.sh" "$d/jam"
           echo "$sha" > "$d/VERSION"
-          tar -C dist -czf dist/jam-linux-amd64.tar.gz jam-linux-amd64
+          tar -C stage/linux-amd64 -czf dist/jam-linux-amd64.tar.gz jam
 
           # macOS: plain binaries for now (no .app bundle yet).
           for arch in arm64 amd64; do
-            d=dist/jam-darwin-$arch
+            d=stage/darwin-$arch/jam
             mkdir -p "$d"
             build darwin $arch "$d/jam"
             chmod +x "$d/jam"
             echo "$sha" > "$d/VERSION"
-            tar -C dist -czf dist/jam-darwin-$arch.tar.gz jam-darwin-$arch
+            tar -C stage/darwin-$arch -czf dist/jam-darwin-$arch.tar.gz jam
           done
 
           # Windows.
-          d=dist/jam-windows-amd64
+          d=stage/windows-amd64/jam
           mkdir -p "$d"
           build windows amd64 "$d/jam.exe"
           echo "$sha" > "$d/VERSION"
-          (cd dist && zip -qr jam-windows-amd64.zip jam-windows-amd64)
+          (cd stage/windows-amd64 && zip -qr ../../dist/jam-windows-amd64.zip jam)
 
           ls -l dist/*.tar.gz dist/*.zip
       - uses: actions/upload-artifact@v4
@@ -121,4 +125,4 @@ jobs:
             --title "edge (${GITHUB_SHA::7})" \
             --notes "Newest build of main, commit ${GITHUB_SHA}. Replaced on every push to main.
 
-          Linux: \`wget https://github.com/${GH_REPO}/releases/download/edge/jam-linux-amd64.tar.gz\`, then \`tar -xzf jam-linux-amd64.tar.gz && ./jam-linux-amd64/install.sh\`."
+          Linux, from the folder that should hold jam/: \`wget -qO- https://github.com/${GH_REPO}/releases/download/edge/jam-linux-amd64.tar.gz | tar -xz && ./jam/install.sh\`"

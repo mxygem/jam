@@ -1,6 +1,6 @@
 #!/bin/sh
 # Installs jam for the current user and adds it to the app launcher.
-# Run it from the extracted jam-linux-amd64 folder; run it again after
+# It sits in the jam folder the download unpacks to; run it again after
 # downloading a newer build to update.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
