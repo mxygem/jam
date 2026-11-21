@@ -1,0 +1,124 @@
+name: build
+
+# Every push and pull request is tested and built for Windows, macOS and
+# Linux; the builds are attached to the run as artifacts. A push to main also
+# refreshes the "edge" prerelease, so the newest build is always at
+#   https://github.com/mxygem/jam/releases/download/edge/<file>
+
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # Ebitengine loads OpenGL and X11 at run time; the UI tests draw
+      # frames, so they run under a virtual X server with Mesa.
+      - name: Install X11 and Mesa
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends xvfb libgl1 libgl1-mesa-dri libx11-6 libxrandr2 libxcursor1 libxinerama1 libxi6 libxxf86vm1
+      - run: go vet ./...
+      - name: Test
+        env:
+          JAM_NOAUDIO: "1"
+        run: xvfb-run -a -s "-screen 0 1920x1080x24" go test ./... -count=1
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          set -eu
+          mkdir -p dist
+          sha=$(git rev-parse --short HEAD)
+          build() { GOOS=$1 GOARCH=$2 go build -trimpath -ldflags "-s -w" -o "$3" ./cmd/jam; }
+
+          # Linux: the binary, its icon and a script that adds jam to the app launcher.
+          d=dist/jam-linux-amd64
+          mkdir -p "$d"
+          build linux amd64 "$d/jam"
+          cp assets/icon/icon-256.png "$d/jam.png"
+          cp packaging/linux/install.sh "$d/install.sh"
+          chmod +x "$d/install.sh" "$d/jam"
+          echo "$sha" > "$d/VERSION"
+          tar -C dist -czf dist/jam-linux-amd64.tar.gz jam-linux-amd64
+
+          # macOS: plain binaries for now (no .app bundle yet).
+          for arch in arm64 amd64; do
+            d=dist/jam-darwin-$arch
+            mkdir -p "$d"
+            build darwin $arch "$d/jam"
+            chmod +x "$d/jam"
+            echo "$sha" > "$d/VERSION"
+            tar -C dist -czf dist/jam-darwin-$arch.tar.gz jam-darwin-$arch
+          done
+
+          # Windows.
+          d=dist/jam-windows-amd64
+          mkdir -p "$d"
+          build windows amd64 "$d/jam.exe"
+          echo "$sha" > "$d/VERSION"
+          (cd dist && zip -qr jam-windows-amd64.zip jam-windows-amd64)
+
+          ls -l dist/*.tar.gz dist/*.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jam-${{ github.sha }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          retention-days: 14
+
+  edge:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    concurrency:
+      group: edge-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: jam-${{ github.sha }}
+          path: dist
+      - name: Replace the edge prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          gh release delete edge --yes --cleanup-tag || true
+          gh release create edge dist/* \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "edge (${GITHUB_SHA::7})" \
+            --notes "Newest build of main, commit ${GITHUB_SHA}. Replaced on every push to main.
+
+          Linux: \`wget https://github.com/${GH_REPO}/releases/download/edge/jam-linux-amd64.tar.gz\`, then \`tar -xzf jam-linux-amd64.tar.gz && ./jam-linux-amd64/install.sh\`."
