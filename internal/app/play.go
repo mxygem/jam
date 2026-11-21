@@ -433,9 +433,7 @@ func (p *Play) finish(a *App, completed bool) {
 	p.eng.Advance(end)
 	rec := p.rec.Finish(p.eng, end, completed)
 	log.Printf("run finished (completed=%v): score %d, notes %d/%d, inputs %d", completed, rec.Result.Score, rec.Result.NotesHit, rec.Result.NotesHit+rec.Result.NotesMissed, len(rec.Inputs))
-	if sum := a.fps.endRun(); sum != "" {
-		log.Print(sum)
-	}
+	logFrames(a)
 	p.au.Close()
 	path := ""
 	if rec.Result.NotesHit+rec.Result.NotesMissed > 0 {
@@ -461,6 +459,7 @@ func (p *Play) openPause(a *App, now float64) {
 			for _, s := range p.au.Stems {
 				p.au.SetTarget(s.Name, 1)
 			}
+			logFrames(a)
 			a.SetScene(NewPlay(a, p.song, p.c, p.t, p.au))
 		}},
 		{Label: "Settings", Hint: "Highway, effects, lyrics, volume and offsets change right away; gameplay settings apply when you restart",
@@ -471,6 +470,7 @@ func (p *Play) openPause(a *App, now float64) {
 			}},
 		{Label: "End run and review it", Activate: func() { p.finish(a, false) }},
 		{Label: quitLabel(a), Activate: func() {
+			logFrames(a)
 			p.au.Close()
 			if a.Run != nil {
 				a.EndPlaylist()
@@ -479,6 +479,14 @@ func (p *Play) openPause(a *App, now float64) {
 			a.SetScene(NewSongSelect(a))
 		}},
 	}}
+}
+
+// logFrames writes the frame pacing summary of the song that's ending,
+// however it ends: finished, reviewed, restarted or quit.
+func logFrames(a *App) {
+	if sum := a.fps.endRun(); sum != "" {
+		log.Print(sum)
+	}
 }
 
 // resume leaves the pause menu. Once the song is going it counts back in
