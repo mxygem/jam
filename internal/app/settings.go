@@ -65,7 +65,7 @@ func addSongFolder(a *App, path string) {
 	if p == "" {
 		return
 	}
-	p = filepath.Clean(p)
+	p = filepath.Clean(expandHome(p))
 	if inLibrary(a, p) {
 		a.Toast("Already in the library: " + p)
 		return
@@ -80,6 +80,19 @@ func addSongFolder(a *App, path string) {
 	} else {
 		a.Toast("Not a folder: " + p)
 	}
+}
+
+// expandHome turns a leading ~ into the home folder, the way a shell would:
+// "~" and "~/Music" (or "~\Music" on Windows). "~user" is left alone.
+func expandHome(p string) string {
+	if p != "~" && !strings.HasPrefix(p, "~/") && !strings.HasPrefix(p, "~"+string(filepath.Separator)) {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	return filepath.Join(home, p[1:])
 }
 
 func (s *Settings) Update(a *App) error {
