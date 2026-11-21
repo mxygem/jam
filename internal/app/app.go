@@ -73,6 +73,7 @@ type App struct {
 	NoAudio  bool // JAM_NOAUDIO=1: no sound device (headless tests)
 
 	wall wallClock // time of day, bottom right
+	fps  fpsMeter  // frame pacing: the F9 readout and the per-run summary in jam.log
 
 	Index  *library.Index
 	Scores *replay.Scores // the active profile's best scores
@@ -480,6 +481,10 @@ func (a *App) Update() (err error) {
 		a.Settings.Fullscreen = fs
 		_ = a.Settings.Save()
 	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyF9) {
+		a.Settings.ShowFPS = !a.Settings.ShowFPS
+		_ = a.Settings.Save()
+	}
 	return a.step()
 }
 
@@ -581,6 +586,12 @@ func (a *App) Draw(screen *ebiten.Image) {
 		render.SetStage(nil, 0, 0)
 	}
 	a.wall.Draw(screen)
+	if !a.fixed {
+		a.fps.frame(clock.Now())
+		if a.Settings.ShowFPS {
+			a.fps.Draw(screen)
+		}
+	}
 	if a.wantShot {
 		a.TakeScreenshot(screen)
 	}

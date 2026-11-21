@@ -202,6 +202,7 @@ func (p *Play) Update(a *App) error {
 	if !p.started && p.songNow(now) >= 0 {
 		log.Printf("count-in: set to %.1f s, ran %.2f s", p.lead, now-p.armedAt)
 		log.Printf("play: %s, %s %s, %d notes, stems %d, mute on miss %v", p.song.Title(), p.t.Key.Diff.Title(), p.t.Key.Inst.Title(), len(p.t.Notes), len(p.au.Stems), p.mute)
+		a.fps.startRun()
 		p.au.Play()
 		p.started = true
 		p.startClock = now
@@ -432,6 +433,9 @@ func (p *Play) finish(a *App, completed bool) {
 	p.eng.Advance(end)
 	rec := p.rec.Finish(p.eng, end, completed)
 	log.Printf("run finished (completed=%v): score %d, notes %d/%d, inputs %d", completed, rec.Result.Score, rec.Result.NotesHit, rec.Result.NotesHit+rec.Result.NotesMissed, len(rec.Inputs))
+	if sum := a.fps.endRun(); sum != "" {
+		log.Print(sum)
+	}
 	p.au.Close()
 	path := ""
 	if rec.Result.NotesHit+rec.Result.NotesMissed > 0 {

@@ -305,6 +305,8 @@ func newSettingsMenu(a *App, inSong bool) *settingsMenu {
 				ebiten.SetFullscreen(st.Fullscreen)
 			}},
 		{Label: "VSync", Value: func() string { return onOff(st.VSync) }, Adjust: func(int) { st.VSync = !st.VSync; ebiten.SetVsyncEnabled(st.VSync) }},
+		{Label: "FPS counter", Hint: "Frame rate and the slowest frame of the last half second, top left. F9 also switches.",
+			Value: func() string { return onOff(st.ShowFPS) }, Adjust: func(int) { st.ShowFPS = !st.ShowFPS }},
 		{Label: "Results charts", Hint: "Large draws the run and history charts across the whole window. F on the results screen also switches.",
 			Value: func() string {
 				if st.LargeCharts {

@@ -29,6 +29,7 @@ type Settings struct {
 	MuteOnMiss     bool                 `json:"mute_on_miss"`
 	Fullscreen     bool                 `json:"fullscreen"`
 	VSync          bool                 `json:"vsync"`
+	ShowFPS        bool                 `json:"show_fps"` // frame rate readout in the top left corner
 	FFmpegPath     string               `json:"ffmpeg_path,omitempty"`
 	LastSong       string               `json:"last_song,omitempty"`
 	LastInstrument string               `json:"last_instrument,omitempty"`
