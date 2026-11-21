@@ -7,8 +7,11 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 
+	"github.com/mxygem/jam/internal/clock"
 	"github.com/mxygem/jam/internal/render"
 )
+
+var clockNow = clock.Now
 
 // fpsMeter measures frame pacing from one Draw to the next. It always runs
 // (it's a few float operations a frame) so that a run's summary in jam.log
@@ -20,11 +23,17 @@ type fpsMeter struct {
 	winStart float64
 	frames   int
 	worst    float64
+	winCPU   float64 // seconds spent in Update and Draw this window
 	text     string
+
+	// cpuFrame is this frame's time in Update and Draw so far. The rest of
+	// a frame is Ebitengine presenting it: waiting on the GPU and vsync.
+	cpuFrame float64
 
 	// Frame intervals since startRun, for the summary when the run ends.
 	recording bool
 	run       []float32
+	runCPU    []float32
 
 	loggedGfx bool
 }
@@ -40,31 +49,45 @@ func (m *fpsMeter) frame(now float64) {
 	if m.last > 0 {
 		dt := now - m.last
 		m.frames++
+		m.winCPU += m.cpuFrame
 		if dt > m.worst {
 			m.worst = dt
 		}
 		if m.recording {
 			m.run = append(m.run, float32(dt))
+			m.runCPU = append(m.runCPU, float32(m.cpuFrame))
 		}
 	}
+	m.cpuFrame = 0
 	m.last = now
 	if m.winStart == 0 {
 		m.winStart = now
 	}
 	if span := now - m.winStart; span >= fpsWindow {
-		m.text = fpsText(float64(m.frames)/span, m.worst)
-		m.winStart, m.frames, m.worst = now, 0, 0
+		cpu := 0.0
+		if m.frames > 0 {
+			cpu = m.winCPU / float64(m.frames)
+		}
+		m.text = fpsText(float64(m.frames)/span, m.worst, cpu)
+		m.winStart, m.frames, m.worst, m.winCPU = now, 0, 0, 0
 	}
 }
 
-func fpsText(fps, worst float64) string {
-	return fmt.Sprintf("%.0f FPS   max %.1f ms", fps, worst*1000)
+// cpu adds the time since start to this frame's CPU time; Update and Draw
+// defer it.
+func (m *fpsMeter) cpu(start float64) {
+	m.cpuFrame += clockNow() - start
+}
+
+func fpsText(fps, worst, cpu float64) string {
+	return fmt.Sprintf("%.0f FPS   max %.1f ms   cpu %.1f ms", fps, worst*1000, cpu*1000)
 }
 
 // startRun begins collecting frame intervals for a song.
 func (m *fpsMeter) startRun() {
 	m.recording = true
 	m.run = m.run[:0]
+	m.runCPU = m.runCPU[:0]
 }
 
 // endRun stops collecting and returns a one line summary for the log, or
@@ -74,13 +97,16 @@ func (m *fpsMeter) endRun() string {
 		return ""
 	}
 	m.recording = false
-	return frameSummary(m.run)
+	return frameSummary(m.run, m.runCPU)
 }
 
 // frameSummary describes a run's frame intervals: the average rate, the
 // "1% low" (the rate the slowest 1% of frames ran at), the median and worst
 // frame, and how many frames took over twice the median (visible hitches).
-func frameSummary(run []float32) string {
+// cpu holds each frame's time in Update and Draw; the median of that next
+// to the median frame says whether jam's own work or presenting the frame
+// (the GPU) is the slow part.
+func frameSummary(run, cpu []float32) string {
 	if len(run) < 2 {
 		return ""
 	}
@@ -99,8 +125,14 @@ func frameSummary(run []float32) string {
 			hitches++
 		}
 	}
-	return fmt.Sprintf("frames: %d in %.1f s, avg %.1f fps, 1%% low %.1f fps, median %.1f ms, worst %.1f ms, %d over 2x median",
+	out := fmt.Sprintf("frames: %d in %.1f s, avg %.1f fps, 1%% low %.1f fps, median %.1f ms, worst %.1f ms, %d over 2x median",
 		len(s), total, float64(len(s))/total, 1/p99, med*1000, worst*1000, hitches)
+	if len(cpu) > 0 {
+		c := append([]float32(nil), cpu...)
+		sort.Slice(c, func(i, j int) bool { return c[i] < c[j] })
+		out += fmt.Sprintf("; cpu (update+draw) median %.1f ms, 99%% %.1f ms", float64(c[len(c)/2])*1000, float64(c[(len(c)*99)/100])*1000)
+	}
+	return out
 }
 
 // logGraphics notes what the game is drawing with, once, on the first frame

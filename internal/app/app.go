@@ -455,6 +455,7 @@ func (a *App) guard(where string) {
 // Update implements ebiten.Game.
 func (a *App) Update() (err error) {
 	defer a.guard("update")
+	defer a.fps.cpu(clock.Now())
 	if a.quit {
 		return ErrQuit
 	}
@@ -560,6 +561,7 @@ func (a *App) saveUserShot(screen *ebiten.Image) {
 // Draw implements ebiten.Game.
 func (a *App) Draw(screen *ebiten.Image) {
 	defer a.guard("draw")
+	defer a.fps.cpu(clock.Now())
 	if a.fixed && !a.wantShot {
 		return // only the captured frame is drawn; keeps fixed-step capture fast
 	}

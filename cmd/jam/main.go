@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"sort"
 	"strings"
 	"time"
@@ -60,11 +61,27 @@ func main() {
 	flag.IntVar(&o.Players, "players", 0, "with --song: play it with this many players (1-8); with --autoplay bots play every part")
 	flag.StringVar(&o.Mode, "mode", "", "multiplayer mode for --players: band, h2h, party")
 	flag.StringVar(&o.Layout, "layout", "", "multiplayer layout for --players: auto, row, rows")
+	cpuProfile := flag.String("cpuprofile", "", "write a CPU profile of the whole session to this file (for go tool pprof)")
 	flag.Parse()
 	if o.Screenshot != "" && o.Song == "" && o.ShotScene == "" {
 		o.ShotScene = "menu"
 	}
-	if err := app.Run(o); err != nil {
+	if *cpuProfile != "" {
+		f, err := os.Create(*cpuProfile)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if err := pprof.StartCPUProfile(f); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+	err := app.Run(o)
+	if *cpuProfile != "" {
+		pprof.StopCPUProfile()
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
