@@ -30,17 +30,44 @@ func TestFrameSummary(t *testing.T) {
 		run = append(run, 1.0/60)
 	}
 	run[100], run[200] = 0.1, 0.05
-	s := frameSummary(run)
+	s := frameSummary(run, nil)
 	for _, want := range []string{"frames: 600", "worst 100.0 ms", "2 over 2x median", "median 16.7 ms"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("summary %q lacks %q", s, want)
 		}
 	}
-	if frameSummary(nil) != "" {
+	if frameSummary(nil, nil) != "" {
 		t.Error("empty run should give no summary")
 	}
 	var m fpsMeter
 	if m.endRun() != "" {
 		t.Error("endRun without startRun should be empty")
+	}
+}
+
+func TestFrameSummaryCPU(t *testing.T) {
+	run := []float32{0.086, 0.086, 0.086, 0.086}
+	cpu := []float32{0.004, 0.005, 0.004, 0.006}
+	s := frameSummary(run, cpu)
+	if !strings.Contains(s, "cpu (update+draw) median 5.0 ms") {
+		t.Fatalf("summary %q lacks the cpu median", s)
+	}
+}
+
+func TestFPSMeterCPU(t *testing.T) {
+	m := fpsMeter{loggedGfx: true}
+	now := 10.0
+	old := clockNow
+	defer func() { clockNow = old }()
+	for i := 0; i < 40; i++ {
+		start := now
+		now += 0.004 // 4 ms of update and draw
+		clockNow = func() float64 { return now }
+		m.cpu(start)
+		now += 1.0/60 - 0.004
+		m.frame(now)
+	}
+	if !strings.Contains(m.text, "cpu 4.0 ms") {
+		t.Fatalf("readout %q doesn't show 4 ms of cpu", m.text)
 	}
 }
