@@ -322,6 +322,11 @@ func (s *SongSelect) Update(a *App) error {
 		return nil
 	case inpututil.IsKeyJustPressed(ebiten.KeyF7):
 		s.random()
+	case inpututil.IsKeyJustPressed(ebiten.KeyF8):
+		if song := s.current(); song != nil {
+			a.SetScene(NewChartEditor(a, song, s.inst, s.diff))
+			return nil
+		}
 	case inpututil.IsKeyJustPressed(ebiten.KeyHome):
 		s.sel = 0
 		s.top = 0
@@ -590,6 +595,8 @@ func (s *SongSelect) openOptions(a *App) {
 	if song := s.current(); song != nil {
 		items = append(items, Item{Label: "Add to playlist", Hint: "Adds the selected song with the part shown in the picker",
 			Activate: func() { s.addToQueue(a, song, s.inst, s.diff); s.ov = ovNone }})
+		items = append(items, Item{Label: "Edit chart", Hint: "Chart this song's part in the editor: notes, lyrics and sync points are saved next to the chart (F8)",
+			Activate: func() { a.SetScene(NewChartEditor(a, song, s.inst, s.diff)) }})
 	}
 	items = append(items,
 		Item{Label: "Playlist", Value: func() string { return queueLabel(a) }, Activate: func() { a.SetScene(NewPlaylistScene(a)) }},
@@ -790,7 +797,7 @@ func (s *SongSelect) Draw(dst *ebiten.Image, a *App) {
 		render.Text(dst, "Enter to keep   Esc to cancel", render.Cond, 22, 560, 566, th.TextDim, render.Left)
 	}
 	s.drawChord(dst)
-	Footer(dst, "Green choose   Yellow options (hold for shortcuts)   Red back   Keyboard: type to search, F2 sort, F3 filter, F4 scale, F6 playlist, F7 random")
+	Footer(dst, "Green choose   Yellow options (hold for shortcuts)   Red back   Keyboard: type to search, F2 sort, F3 filter, F4 scale, F6 playlist, F7 random, F8 chart editor")
 }
 
 func (s *SongSelect) subtitle(a *App) string {

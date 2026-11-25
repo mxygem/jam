@@ -71,6 +71,19 @@ Controller mappings belong to profiles. Settings > Controls shows a player's cur
 
 Every player's run is recorded under their profile. Band saves are part of the recording, so runs still re-simulate exactly. `jam --song <folder> --players 4 --autoplay [--mode h2h] [--layout rows]` plays a song with bots on every part (for trying layouts).
 
+## Chart editor
+
+Press F8 on the song list (or Options > Edit chart) to chart the highlighted song's part. The editor plays the song and writes its work to `chart.jam.json` in the song folder. The original `.chart` or `.mid` is never changed, and `Esc` discards unsaved work.
+
+- **Parts**: I moves to the next instrument and D to the next difficulty, so you can add a part the chart doesn't have yet (say a bass part to a guitar-only chart). Each part keeps its unsaved notes until you save, and Ctrl+S saves them all.
+- **Notes** (guitar-style parts and drums): Space plays and pauses. While the song plays, press 1-5 on the beat to add notes to the lanes (G R Y B O). Stopped, the arrows move the cursor, 1-5 toggle a lane on the cursor row, `L` cycles the sustain (none, 1, 2 or 4 beats), Delete removes the note, and `[` `]` change the grid (beat down to 1/16). Notes keep the chart's star power and solo phrases.
+- **Drums**: the pads (1-6: kick, red, yellow, blue, green or orange, and green on a five-lane kit) toggle a note on the cursor row. Ctrl with a pad key cycles accent, ghost and plain; Shift+yellow, blue or green marks a cymbal on a pro kit; X makes the kick a double kick; M cycles the kit between four-lane, pro and five-lane.
+- **Controller**: while you're in notes mode, the guitar's frets and drum pads work like the number keys: a press toggles that lane at the cursor, so you can play along while the song runs. A strum (strum up or down) makes a note from the frets held at that moment, or an open note if none are held. A fret pressed and let go without a strum is a tap; a fret held down is a sustain as long as it was held, and a fret held through a strum sustains that note. Star Power (Back) steps the note at the cursor through tap, hopo and strum. Keyboard guitar keys (A, S, ...) don't edit the chart, because S is the sync key.
+- **Lyrics** (Tab switches): Ctrl+V pastes the clipboard as lyrics (a line per phrase, a word per syllable), then play the song and tap the tap key (Enter by default; Ctrl+K sets another key) on each word as it's sung. Space ends a word and starts the next one; Ctrl+Space plays and pauses. While the song plays, press Enter as each word is sung; the word is timed where the song is, and the next word is selected. Stopped, Enter just moves on. Type to write the selected word (a hyphen at the end joins it to the next word), Ins adds a word, Ctrl+Enter starts a new line, Ctrl+Backspace joins a line to the next. Effects already in the file stay as written.
+- **Sync points** (notes mode): while the song plays, press S on a beat to pin that beat to the song's current time; Shift+S removes the nearest one. Between points the tempo follows them, so notes and lyrics stay on the music when the tempo drifts. The readout shows the tempo at the cursor.
+- **Timing**: the playhead and stamps use the audio offset (Settings, or Calibrate latency), the same way the game judges input.
+- **Save**: Ctrl+S (Cmd+S on a Mac).
+
 ## Command line tools
 
 ```
@@ -123,6 +136,7 @@ Under `%AppData%\jam` on Windows (`~/.config/jam` on Linux; override with `JAM_H
 - `profiles/`: one `<id>.json` per profile (name, color, gameplay settings, highway, calibration), plus `<id>.bindings.json` and `<id>.scores.json` for every profile after the first
 - `runs/`: one gzipped JSON file per playthrough with every input and judgment
 - `songs/`: the demo song (and a good place for your own)
+- `chart.jam.json` (in a song folder): the chart editor's work: authored notes per part and difficulty (`tracks`), lyrics (`vocals`), the tempo grid (`grid`) and sync points (`sync`). Ticks are the chart's own. Written by the editor and read by the game; the game ignores sections it doesn't know
 - `themes/`: theme files, one JSON file per theme (`name`, `colors` by slot as `#RRGGBB`, `material`, `rim`, `highway`, `highway_opacity`, `beat_lines`, `lane_lines`; anything left out comes from the Jam theme)
 
 ## Layout

@@ -114,6 +114,7 @@ type jamProject struct {
 		Parts   []jamVocalPart `json:"parts"`
 		Phrases []jamPhrase    `json:"phrases"` // older files: one lead part
 	} `json:"vocals"`
+	Sync []ProjAnchor `json:"sync"`
 }
 
 type jamVocalPart struct {
@@ -164,7 +165,7 @@ func loadProjectVocals(path string, ini *SongIni) ([]VocalPart, error) {
 	if d, ok := ini.Int("delay"); ok {
 		offset += float64(d) / 1000
 	}
-	tm := NewTempoMap(jp.Grid.Resolution, tempos, sigs, offset)
+	tm := NewTempoMap(jp.Grid.Resolution, tempos, sigs, offset).WithAnchors(anchorsFrom(jp.Sync))
 	raw := jp.Vocals.Parts
 	if len(raw) == 0 && len(jp.Vocals.Phrases) > 0 {
 		raw = []jamVocalPart{{Name: "Lead", Lead: true, Phrases: jp.Vocals.Phrases}}

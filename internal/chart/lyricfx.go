@@ -1,6 +1,7 @@
 package chart
 
 import (
+	"fmt"
 	"image/color"
 	"regexp"
 	"strconv"
@@ -171,4 +172,25 @@ func withFX(phrases []LyricPhrase, fxs []FX) {
 			s.FX = mergeFX(fxs, s.FX...)
 		}
 	}
+}
+
+// String writes an effect the way a project file stores it, so that ParseFX
+// reads it back to the same effect.
+func (f FX) String() string {
+	if f.Name == "color" {
+		return fmt.Sprintf("color:#%02x%02x%02x", f.Color.R, f.Color.G, f.Color.B)
+	}
+	if f.Arg != 0 {
+		return f.Name + ":" + strconv.FormatFloat(f.Arg, 'g', -1, 64)
+	}
+	return f.Name
+}
+
+// FXStrings writes a list of effects as project file strings (nil for none).
+func FXStrings(fxs []FX) []string {
+	var out []string
+	for _, f := range fxs {
+		out = append(out, f.String())
+	}
+	return out
 }

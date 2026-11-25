@@ -26,6 +26,7 @@ type Settings struct {
 	ErrorSounds    string               `json:"error_sounds"`   // which mistakes make a noise: off, overstrum, extra, all
 	ErrorVolume    float64              `json:"error_volume"`   // relative to Volume
 	ShowTiming     bool                 `json:"show_timing"`
+	LyricTapKey    string               `json:"lyric_tap_key"` // the key that times a word in the chart editor
 	MuteOnMiss     bool                 `json:"mute_on_miss"`
 	Fullscreen     bool                 `json:"fullscreen"`
 	VSync          bool                 `json:"vsync"`
@@ -200,6 +201,7 @@ func Default() *Settings {
 		ErrorSounds:     "overstrum",
 		ErrorVolume:     0.5,
 		ShowTiming:      true,
+		LyricTapKey:     "Enter",
 		MuteOnMiss:      true,
 		VSync:           true,
 		LeadIn:          2.5,
