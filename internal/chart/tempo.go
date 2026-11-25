@@ -25,6 +25,46 @@ type TempoMap struct {
 	// Offset in seconds added to every tick time so that times line up with
 	// the audio: .chart Offset plus song.ini delay.
 	Offset float64
+	// Anchors pin ticks to song times (sync points), sorted by tick with
+	// song times rising. Empty: the tempo changes alone decide.
+	Anchors []Anchor
+}
+
+// Anchor pins a tick to a song time in seconds (the same clock as Seconds).
+type Anchor struct {
+	Tick int64
+	Sec  float64
+}
+
+// WithAnchors returns a copy of tm with the sync points set. Points are sorted
+// by tick; a point whose time doesn't rise with its tick is dropped, so the
+// result is always a valid mapping. With no points, tm itself is returned.
+func (tm *TempoMap) WithAnchors(points []Anchor) *TempoMap {
+	valid := ValidAnchors(points)
+	if len(valid) == 0 && len(tm.Anchors) == 0 {
+		return tm
+	}
+	c := *tm
+	c.Anchors = valid
+	return &c
+}
+
+// ValidAnchors sorts sync points by tick, keeps the last of any two at the
+// same tick, and drops points whose time doesn't rise with the tick.
+func ValidAnchors(points []Anchor) []Anchor {
+	in := append([]Anchor(nil), points...)
+	sort.SliceStable(in, func(i, j int) bool { return in[i].Tick < in[j].Tick })
+	var out []Anchor
+	for _, p := range in {
+		if n := len(out); n > 0 && out[n-1].Tick == p.Tick {
+			out = out[:n-1]
+		}
+		if n := len(out); n > 0 && p.Sec <= out[n-1].Sec {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 // NewTempoMap builds a map from unsorted tempo and signature lists, applying
@@ -108,13 +148,29 @@ func (tm *TempoMap) Seconds(tick int64) float64 {
 
 // SecondsF is Seconds for fractional ticks.
 func (tm *TempoMap) SecondsF(tick float64) float64 {
+	if len(tm.Anchors) == 0 {
+		return tm.tempoSeconds(tick)
+	}
+	return tm.anchoredSeconds(tick)
+}
+
+// Ticks returns the (fractional) tick at song time sec.
+func (tm *TempoMap) Ticks(sec float64) float64 {
+	if len(tm.Anchors) == 0 {
+		return tm.tempoTicks(sec)
+	}
+	return tm.anchoredTicks(sec)
+}
+
+// tempoSeconds and tempoTicks convert with the tempo changes alone, ignoring
+// sync points.
+func (tm *TempoMap) tempoSeconds(tick float64) float64 {
 	i := tm.tempoIndexForTick(int64(tick))
 	t := tm.Tempos[i]
 	return t.sec + (tick-float64(t.Tick))/float64(tm.Resolution)*60.0/t.BPM + tm.Offset
 }
 
-// Ticks returns the (fractional) tick at song time sec.
-func (tm *TempoMap) Ticks(sec float64) float64 {
+func (tm *TempoMap) tempoTicks(sec float64) float64 {
 	raw := sec - tm.Offset
 	i := sort.Search(len(tm.Tempos), func(i int) bool { return tm.Tempos[i].sec > raw })
 	if i > 0 {
@@ -122,6 +178,37 @@ func (tm *TempoMap) Ticks(sec float64) float64 {
 	}
 	t := tm.Tempos[i]
 	return float64(t.Tick) + (raw-t.sec)*t.BPM/60.0*float64(tm.Resolution)
+}
+
+// anchoredSeconds is linear between sync points. Before the first and after
+// the last, it follows the tempo changes, shifted to meet the nearest point.
+func (tm *TempoMap) anchoredSeconds(tick float64) float64 {
+	a := tm.Anchors
+	if tick <= float64(a[0].Tick) {
+		return a[0].Sec + tm.tempoSeconds(tick) - tm.tempoSeconds(float64(a[0].Tick))
+	}
+	last := a[len(a)-1]
+	if tick >= float64(last.Tick) {
+		return last.Sec + tm.tempoSeconds(tick) - tm.tempoSeconds(float64(last.Tick))
+	}
+	i := sort.Search(len(a), func(i int) bool { return float64(a[i].Tick) > tick }) - 1
+	p, q := a[i], a[i+1]
+	return p.Sec + (tick-float64(p.Tick))/float64(q.Tick-p.Tick)*(q.Sec-p.Sec)
+}
+
+// anchoredTicks is the inverse of anchoredSeconds.
+func (tm *TempoMap) anchoredTicks(sec float64) float64 {
+	a := tm.Anchors
+	if sec <= a[0].Sec {
+		return tm.tempoTicks(sec - a[0].Sec + tm.tempoSeconds(float64(a[0].Tick)))
+	}
+	last := a[len(a)-1]
+	if sec >= last.Sec {
+		return tm.tempoTicks(sec - last.Sec + tm.tempoSeconds(float64(last.Tick)))
+	}
+	i := sort.Search(len(a), func(i int) bool { return a[i].Sec > sec }) - 1
+	p, q := a[i], a[i+1]
+	return float64(p.Tick) + (sec-p.Sec)/(q.Sec-p.Sec)*float64(q.Tick-p.Tick)
 }
 
 // BPMAt returns the tempo in effect at tick.

@@ -96,23 +96,35 @@ func MissSound() PCM {
 func Tone(freq, dur float64, kind int) PCM {
 	n := int(dur * SampleRate)
 	p := make(PCM, n)
+	// The envelope decays exponentially with time. Stepping it by a constant
+	// ratio traces the same curve without a math.Exp call per sample.
+	rate := 1.2
+	if kind == 1 {
+		rate = 2.5
+	}
+	decay := math.Exp(-rate / SampleRate)
+	envDecay := 1.0
 	for i := range p {
 		t := float64(i) / SampleRate
-		env := math.Min(1, t*200) * math.Exp(-t*1.2)
+		env := math.Min(1, t*200) * envDecay
 		rel := math.Min(1, (dur-t)*30)
 		var v float64
 		switch kind {
 		case 0: // lead: detuned saws through soft clipping
 			ph1 := math.Mod(t*freq, 1)*2 - 1
 			ph2 := math.Mod(t*freq*1.006, 1)*2 - 1
+			// A general lesson worth keeping: in Go, math.Tanh calls math.Exp internally, so a
+			// profile that shows math.archExp may really be telling you about Tanh, and per-
+			// sample exponentials can almost always become a multiply.
 			v = math.Tanh((ph1 + ph2) * 1.4)
 		case 1: // bass: sine + a little square
 			v = math.Sin(2*math.Pi*freq*t) + 0.25*math.Copysign(1, math.Sin(2*math.Pi*freq*t))
-			env = math.Min(1, t*300) * math.Exp(-t*2.5)
+			env = math.Min(1, t*300) * envDecay
 		default: // pad
 			v = math.Sin(2*math.Pi*freq*t) + 0.5*math.Sin(2*math.Pi*freq*2*t)
 		}
 		p[i] = float32(v * env * rel * 0.35)
+		envDecay *= decay
 	}
 	return p
 }

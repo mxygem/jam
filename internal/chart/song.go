@@ -96,7 +96,13 @@ func (s *Song) LoadChart() (*Chart, error) {
 	if err != nil {
 		return nil, err
 	}
+	if perr := applyProjectSync(c, s.Dir, s.Ini); perr != nil {
+		s.ProjectErr = perr
+	}
 	if perr := applyProjectVocals(c, s.Dir, s.Ini); perr != nil {
+		s.ProjectErr = perr
+	}
+	if perr := applyProjectTracks(c, s.Dir, s.Ini); perr != nil && s.ProjectErr == nil {
 		s.ProjectErr = perr
 	}
 	return c, nil

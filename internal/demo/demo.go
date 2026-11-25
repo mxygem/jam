@@ -261,9 +261,35 @@ func chartText() string {
 
 var guitarHz = []float64{164.81, 196.0, 220.0, 246.94, 293.66}
 
+type toneKey struct {
+	freq, dur float64
+	kind      int
+}
+
 func render() (guitar, bass, drums, song playback.PCM) {
 	total := secs(bars*bar) + 1.5
 	guitar, bass, drums, song = playback.NewPCM(total), playback.NewPCM(total), playback.NewPCM(total), playback.NewPCM(total)
+	// The parts repeat a handful of pitches and lengths, so synthesize each
+	// distinct tone once and mix the same samples wherever it recurs.
+	tones := map[toneKey]playback.PCM{}
+	tone := func(f, dur float64, kind int) playback.PCM {
+		k := toneKey{f, dur, kind}
+		if p, ok := tones[k]; ok {
+			return p
+		}
+		p := playback.Tone(f, dur, kind)
+		tones[k] = p
+		return p
+	}
+	toms := map[int]playback.PCM{}
+	tom := func(l int) playback.PCM {
+		if p, ok := toms[l]; ok {
+			return p
+		}
+		p := playback.TomVoice(220 - float64(l)*35)
+		toms[l] = p
+		return p
+	}
 	for _, n := range guitarExpert().notes {
 		dur := secs(max(n.length, e8)) + 0.05
 		for _, l := range n.lanes {
@@ -271,13 +297,13 @@ func render() (guitar, bass, drums, song playback.PCM) {
 			if l < 5 {
 				f = guitarHz[l]
 			}
-			guitar.Add(secs(n.tick), playback.Tone(f, dur, 0), 0.5)
+			guitar.Add(secs(n.tick), tone(f, dur, 0), 0.5)
 		}
 	}
 	for _, n := range bassExpert().notes {
 		dur := secs(max(n.length, e8)) + 0.02
 		for _, l := range n.lanes {
-			bass.Add(secs(n.tick), playback.Tone(guitarHz[l]/4, dur, 1), 0.8)
+			bass.Add(secs(n.tick), tone(guitarHz[l]/4, dur, 1), 0.8)
 		}
 	}
 	kick, snare, hat, ride, crash := playback.Kick(), playback.Snare(), playback.HiHat(false), playback.HiHat(true), playback.Crash()
@@ -300,14 +326,14 @@ func render() (guitar, bass, drums, song playback.PCM) {
 			case l == 4 && cym[4]:
 				drums.Add(t, crash, 1)
 			default:
-				drums.Add(t, playback.TomVoice(220-float64(l)*35), 1)
+				drums.Add(t, tom(l), 1)
 			}
 		}
 	}
 	chords := [][]float64{{82.41, 123.47, 164.81}, {65.41, 98.0, 130.81}, {73.42, 110.0, 146.83}, {82.41, 123.47, 164.81}}
 	for b := 0; b < bars; b++ {
 		for _, f := range chords[b%4] {
-			song.Add(secs(b*bar), playback.Tone(f*2, secs(bar)+0.1, 2), 0.18)
+			song.Add(secs(b*bar), tone(f*2, secs(bar)+0.1, 2), 0.18)
 		}
 	}
 	return
